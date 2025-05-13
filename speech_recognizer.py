@@ -14,7 +14,7 @@ class SpeechRecognizer:
     def __init__(
         self,
         model_path: str = "vosk-model-small-cn",
-        sample_rate: int = None,
+        sample_rate: int = 16000,
         on_text_callback: Optional[Callable[[str], None]] = None,
     ):
         """
@@ -25,10 +25,6 @@ class SpeechRecognizer:
             sample_rate: 采样率
             on_text_callback: 识别到文本时的回调函数
         """
-        # 从环境变量获取采样率，如果不存在则使用默认值16000
-        if sample_rate is None:
-            sample_rate = int(os.environ.get("AI_EMOTION_SAMPLE_RATE", "16000"))
-
         self.sample_rate = sample_rate
         self.model = Model(model_path)
         self.recognizer = KaldiRecognizer(self.model, sample_rate)
