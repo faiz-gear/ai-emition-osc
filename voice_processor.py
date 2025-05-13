@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
 from langchain.callbacks.manager import CallbackManager
+from langchain_core.output_parsers import JsonOutputParser
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from pythonosc import udp_client
 import xml.etree.ElementTree as ET
@@ -55,91 +56,13 @@ class EmotionAnalysis(BaseModel):
     brief_explanation: str = Field(description="对情感分析的简短解释，不超过100字")
 
 
-class XMLOutputParser:
-    """解析XML格式的情感分析输出"""
-
-    def __init__(self):
-        self.emotion_dimensions = [
-            "joy",
-            "trust",
-            "fear",
-            "surprise",
-            "sadness",
-            "disgust",
-            "anger",
-            "anticipation",
-        ]
-
-    def parse(self, text: str) -> EmotionAnalysis:
-        """解析XML格式的输出并转换为EmotionAnalysis对象"""
-        try:
-            # 提取<emotion_analysis>标签内的内容
-            start_tag = "<emotion_analysis>"
-            end_tag = "</emotion_analysis>"
-
-            start_index = text.find(start_tag)
-            end_index = text.find(end_tag) + len(end_tag)
-
-            if start_index == -1 or end_index == -1:
-                raise ValueError("未找到有效的emotion_analysis XML标签")
-
-            xml_content = text[start_index:end_index]
-
-            # 解析XML
-            root = ET.fromstring(xml_content)
-
-            # 解析情感维度
-            dimensions_data = {}
-            dimensions_elem = root.find("dimensions")
-            if dimensions_elem is not None:
-                for dim in self.emotion_dimensions:
-                    dim_elem = dimensions_elem.find(dim)
-                    dimensions_data[dim] = (
-                        float(dim_elem.text) if dim_elem is not None else 0.0
-                    )
-
-            # 获取主要情感和解释
-            dominant_emotion = root.find("dominant_emotion")
-            brief_explanation = root.find("brief_explanation")
-
-            # 构建EmotionAnalysis对象
-            return EmotionAnalysis(
-                dimensions=EmotionDimensions(**dimensions_data),
-                dominant_emotion=(
-                    dominant_emotion.text if dominant_emotion is not None else "neutral"
-                ),
-                brief_explanation=(
-                    brief_explanation.text if brief_explanation is not None else ""
-                ),
-            )
-
-        except Exception as e:
-            print(f"XML解析错误: {str(e)}")
-            print(f"原始文本: {text}")
-            # 返回一个默认的中性情感分析结果
-            return EmotionAnalysis(
-                dimensions=EmotionDimensions(
-                    joy=0.0,
-                    trust=0.0,
-                    fear=0.0,
-                    surprise=0.0,
-                    sadness=0.0,
-                    disgust=0.0,
-                    anger=0.0,
-                    anticipation=0.0,
-                ),
-                dominant_emotion="neutral",
-                brief_explanation="解析错误，返回默认中性结果",
-            )
-
-
 class VoiceProcessor:
     def __init__(self):
         self.osc_client = udp_client.SimpleUDPClient(OSC_IP, OSC_PORT)
         self.processed_files = set()
 
         # 初始化LangChain组件
-        self.parser = XMLOutputParser()
+        self.parser = JsonOutputParser(pydantic_object=EmotionAnalysis)
 
         # 构建提示模板
         self.prompt = ChatPromptTemplate.from_template(EMOTION_PROMPT_TEMPLATE)

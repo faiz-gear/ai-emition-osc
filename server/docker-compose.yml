@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  ai-emotion-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '8000:8000'
+    volumes:
+      - ./app:/app/app # For development - mount app directory for hot-reload
+    environment:
+      - AI_EMOTION_HOST=0.0.0.0
+      - AI_EMOTION_PORT=8000
+      - AI_EMOTION_RELOAD=true
+      - AI_EMOTION_OSC_IP=${AI_EMOTION_OSC_IP:-127.0.0.1}
+      - AI_EMOTION_OSC_PORT=${AI_EMOTION_OSC_PORT:-7000}
+      - AI_EMOTION_OSC_ENABLED=${AI_EMOTION_OSC_ENABLED:-true}
+      - AI_EMOTION_LLM_MODEL=${AI_EMOTION_LLM_MODEL:-deepseek-r1:1.5b}
+      - AI_EMOTION_LLM_TEMPERATURE=${AI_EMOTION_LLM_TEMPERATURE:-0.6}
+      - AI_EMOTION_PROMPT_TEMPLATE=/app/resources/prompt_template.txt
+      - AI_EMOTION_VOSK_MODEL=/app/resources/vosk-model-small-cn
+    # Allow host network mode for Ollama access (optional, depends on Ollama setup)
+    # network_mode: "host"

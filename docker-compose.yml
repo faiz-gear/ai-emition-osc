@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - '8000:8000'
+    environment:
+      - AI_EMOTION_HOST=0.0.0.0
+      - AI_EMOTION_PORT=8000
+      - AI_EMOTION_RELOAD=false
+      - AI_EMOTION_OSC_IP=${AI_EMOTION_OSC_IP:-127.0.0.1}
+      - AI_EMOTION_OSC_PORT=${AI_EMOTION_OSC_PORT:-7000}
+      - AI_EMOTION_OSC_ENABLED=${AI_EMOTION_OSC_ENABLED:-true}
+      - AI_EMOTION_LLM_MODEL=${AI_EMOTION_LLM_MODEL:-deepseek-r1:1.5b}
+      - AI_EMOTION_LLM_TEMPERATURE=${AI_EMOTION_LLM_TEMPERATURE:-0.6}
+      - AI_EMOTION_PROMPT_TEMPLATE=/app/resources/prompt_template.txt
+      - AI_EMOTION_VOSK_MODEL=/app/resources/vosk-model-small-cn
+    # To run in host network mode (for Ollama access):
+    # network_mode: "host"
+    restart: unless-stopped
+
+  # client service will be added later
+  # client:
+  #   build:
+  #     context: ./client
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - NEXT_PUBLIC_API_URL=http://server:8000
+  #   depends_on:
+  #     - server
+  #   restart: unless-stopped
