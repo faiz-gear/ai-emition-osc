@@ -9,6 +9,9 @@ from langchain_ollama import ChatOllama
 from langchain.callbacks.manager import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from pythonosc import udp_client
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ============== 配置区 ==============
 # 从环境变量读取配置，如果不存在则使用默认值
@@ -19,6 +22,7 @@ OSC_IP = os.environ.get("AI_EMOTION_OSC_IP", "127.0.0.1")
 OSC_PORT = int(os.environ.get("AI_EMOTION_OSC_PORT", "7000"))
 POLL_INTERVAL = float(os.environ.get("AI_EMOTION_POLL_INTERVAL", "1"))  # 轮询间隔（秒）
 LLM_MODEL = os.environ.get("AI_EMOTION_LLM_MODEL", "deepseek-r1:1.5b")
+print(f"LLM_MODEL: {LLM_MODEL}")
 LLM_TEMPERATURE = float(os.environ.get("AI_EMOTION_LLM_TEMPERATURE", "0.6"))
 # ===================================
 

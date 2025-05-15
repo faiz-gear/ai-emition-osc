@@ -7,10 +7,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 打印所有环境变量
+# 打印所有环境变量(以AI_EMOTION_开头的)
 print("环境变量：")
 for key, value in os.environ.items():
-    print(f"{key}: {value}")
+    if key.startswith("AI_EMOTION_"):
+        print(f"{key}: {value}")
 
 
 async def main():
