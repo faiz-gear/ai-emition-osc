@@ -7,6 +7,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 打印以AI_EMOTION_开头的环境变量
+print("环境变量：")
+for key, value in os.environ.items():
+    if key.startswith("AI_EMOTION_"):
+        print(f"{key}: {value}")
+
 
 async def main():
     # 创建情绪分析处理器

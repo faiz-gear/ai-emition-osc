@@ -8,6 +8,9 @@ from vosk import Model, KaldiRecognizer
 import asyncio
 from typing import Optional, Callable
 import time
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class SpeechRecognizer:

@@ -12,6 +12,10 @@ from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from pythonosc import udp_client
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # ============== 配置区 ==============
 # 从环境变量读取配置，如果不存在则使用默认值
