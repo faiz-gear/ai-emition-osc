@@ -12,3 +12,4 @@ numpy>=1.26.0
 setuptools>=69.0.0
 tqdm>=4.66.0
 pydantic>=2.0.0
+python-dotenv==1.1.0

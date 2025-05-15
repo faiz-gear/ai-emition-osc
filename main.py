@@ -3,6 +3,9 @@ import os
 import asyncio
 from speech_recognizer import SpeechRecognizer
 from voice_processor import VoiceProcessor
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 async def main():
