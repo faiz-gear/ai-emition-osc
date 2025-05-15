@@ -121,10 +121,6 @@ class VoiceProcessor:
             # 发送强度最大的情感编码到TouchDesigner
             self.osc_client.send_message("/dominant_emotion", [max_emotion_code])
 
-            # 继续发送所有情感维度数据（保留原有功能）
-            emotion_data = [dimensions[key] for key in dimensions]
-            self.osc_client.send_message("/emotion", emotion_data)
-
             # 打印分析结果
             print(f"\n[情感分析结果]")
             print(f"主要情感: {result.dominant_emotion}")
