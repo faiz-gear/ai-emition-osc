@@ -39,6 +39,135 @@
 - 保持判断的一致性和客观性
 </goals>
 
+<example_1>
+<input>
+"我感到非常开心，因为今天天气很好，而且我终于完成了这个项目。"
+</input>
+<output>
+joy: 0.9
+trust: 0.1
+fear: 0.0
+surprise: 0.0
+sadness: 0.0
+disgust: 0.0
+anger: 0.0
+anticipation: 0.0
+</output>
+</example_1>
+
+
+<example_2>
+<input>
+"我相信未来AI会改变世界。"
+</input>
+<output>
+joy: 0.0
+trust: 0.9
+fear: 0.0
+surprise: 0.0
+sadness: 0.0
+disgust: 0.0
+anger: 0.0
+anticipation: 0.0
+</output>
+</example_2>
+
+<example_3>
+<input>
+"我讨厌AI, 它可能会取代我的工作。"
+</input>
+<output>
+joy: 0.0
+trust: 0.0
+fear: 0.9
+surprise: 0.0
+sadness: 0.0
+disgust: 0.9
+anger: 0.0
+anticipation: 0.0
+</output>
+</example_3>
+
+<example_4>
+<input>
+"我感到非常惊讶，AI竟然可以如此智能。"
+</input>
+<output>
+joy: 0.0
+trust: 0.0
+fear: 0.0
+surprise: 0.9
+sadness: 0.0
+disgust: 0.0
+anger: 0.0
+anticipation: 0.0
+</output>
+</example_4>
+
+<example_5>
+<input>
+"今天下雨了，我感到非常沮丧。"
+</input>
+<output>
+joy: 0.0
+trust: 0.0
+fear: 0.0
+surprise: 0.0
+sadness: 0.9
+disgust: 0.0
+anger: 0.0
+anticipation: 0.0
+</output>
+</example_5>
+
+<example_6>
+<input>
+"我很厌恶这个世界，因为这个世界充满了欺骗和谎言。"
+</input>
+<output>
+joy: 0.0
+trust: 0.0
+fear: 0.0
+surprise: 0.0
+sadness: 0.0
+disgust: 0.9
+anger: 0.0
+anticipation: 0.0
+</output>
+</example_6>
+
+<example_7>
+<input>
+"我感到非常生气，因为我的电脑坏了。"
+</input>
+<output>
+joy: 0.0
+trust: 0.0
+fear: 0.0
+surprise: 0.0
+sadness: 0.0
+disgust: 0.0
+anger: 0.9
+anticipation: 0.0
+</output>
+</example_7>
+
+<example_8>
+<input>
+"期待2025作为Agent元年，能够带来更多惊喜。"
+</input>
+<output>
+joy: 0.0
+trust: 0.0
+fear: 0.0
+surprise: 0.0
+sadness: 0.0
+disgust: 0.0
+anger: 0.0
+anticipation: 0.9
+</output>
+</example_8>
+
 <initialization>
 这是用户输入的文本：
 {text}
