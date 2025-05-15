@@ -123,19 +123,8 @@ class VoiceProcessor:
             # max_emotion_code = emotion_mapping[max_emotion_name]
 
             # 发送强度最大的情感编码到TouchDesigner
-            self.osc_client.send_message(
-                "/emotion",
-                [
-                    dimensions["joy"],
-                    dimensions["trust"],
-                    dimensions["fear"],
-                    dimensions["surprise"],
-                    dimensions["sadness"],
-                    dimensions["disgust"],
-                    dimensions["anger"],
-                    dimensions["anticipation"],
-                ],
-            )
+            emotions = [float(value) for value in dimensions.values()]
+            self.osc_client.send_message("/emotion", emotions)
 
             # 打印分析结果
             print(f"\n[情感分析结果]")
@@ -143,6 +132,7 @@ class VoiceProcessor:
             # print(
             #     f"最强情感: {max_emotion_name} (强度: {max_emotion_value:.2f}, 编码: {max_emotion_code})"
             # )
+            print(f"发送给TouchDesigner的情感数据: {emotions}")
             for emotion, value in dimensions.items():
                 print(f"{emotion}: {value:.2f}")
             print(f"解释: {result.brief_explanation}")
