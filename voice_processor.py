@@ -4,14 +4,11 @@ import time
 import asyncio
 from typing import Optional, List, Dict, Any
 from pathlib import Path
-from pydantic import BaseModel, Field, field_validator, validator
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
 from langchain.callbacks.manager import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from pythonosc import udp_client
-from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.runnables import RunnablePassthrough
 
 # ============== 配置区 ==============
 # 从环境变量读取配置，如果不存在则使用默认值
@@ -32,32 +29,17 @@ PROMPT_TEMPLATE_PATH = os.environ.get(
 with open(PROMPT_TEMPLATE_PATH, "r", encoding="utf-8") as f:
     EMOTION_PROMPT_TEMPLATE = f.read()
 
-
-class EmotionDimensions(BaseModel):
-    """Plutchik情感轮的八种基本情感维度"""
-
-    joy: float = Field(ge=0.0, le=1.0, description="喜悦情绪强度，范围0-1")
-    trust: float = Field(ge=0.0, le=1.0, description="信任情绪强度，范围0-1")
-    fear: float = Field(ge=0.0, le=1.0, description="恐惧情绪强度，范围0-1")
-    surprise: float = Field(ge=0.0, le=1.0, description="惊讶情绪强度，范围0-1")
-    sadness: float = Field(ge=0.0, le=1.0, description="悲伤情绪强度，范围0-1")
-    disgust: float = Field(ge=0.0, le=1.0, description="厌恶情绪强度，范围0-1")
-    anger: float = Field(ge=0.0, le=1.0, description="愤怒情绪强度，范围0-1")
-    anticipation: float = Field(ge=0.0, le=1.0, description="期待情绪强度，范围0-1")
-
-    @field_validator("*")
-    def check_values(cls, v):
-        return round(max(0.0, min(1.0, v)), 2)
-
-
-class EmotionAnalysis(BaseModel):
-    """多维度情感分析结果的结构化输出模型"""
-
-    dimensions: EmotionDimensions = Field(description="Plutchik情感轮的八种情感维度")
-    dominant_emotion: str = Field(
-        description="最主要的情感，如果所有情感都低于阈值则为neutral"
-    )
-    brief_explanation: str = Field(description="对情感分析的简短解释，不超过100字")
+# 情感名称映射表（仅用于日志显示）
+EMOTION_NAMES = {
+    1: "喜悦(joy)",
+    2: "信任(trust)",
+    3: "恐惧(fear)",
+    4: "惊讶(surprise)",
+    5: "悲伤(sadness)",
+    6: "厌恶(disgust)",
+    7: "愤怒(anger)",
+    8: "期待(anticipation)",
+}
 
 
 class VoiceProcessor:
@@ -65,26 +47,17 @@ class VoiceProcessor:
         self.osc_client = udp_client.SimpleUDPClient(OSC_IP, OSC_PORT)
         self.processed_files = set()
 
-        # 初始化PydanticOutputParser
-        self.parser = PydanticOutputParser(pydantic_object=EmotionAnalysis)
-
-        # 构建提示模板，包含解析器格式说明
-        prompt_template = EMOTION_PROMPT_TEMPLATE + "\n{format_instructions}"
-        self.prompt = ChatPromptTemplate.from_template(
-            template=prompt_template,
-            partial_variables={
-                "format_instructions": self.parser.get_format_instructions()
-            },
-        )
+        # 构建提示模板
+        self.prompt = ChatPromptTemplate.from_template(template=EMOTION_PROMPT_TEMPLATE)
 
         # 初始化LLM
         self.llm = ChatOllama(
             model=LLM_MODEL,
             temperature=LLM_TEMPERATURE,
             callbacks=[StreamingStdOutCallbackHandler()],
-        ).with_structured_output(EmotionAnalysis)
+        )
 
-        # 使用LCEL创建情感分析链 - 修改为正确的链结构
+        # 创建情感分析链
         self.emotion_chain = self.prompt | self.llm
 
     async def process_text(self, text: str) -> None:
@@ -93,43 +66,35 @@ class VoiceProcessor:
             return
 
         try:
-            # 使用修改后的LCEL链进行情感分析
-            result = await self.emotion_chain.ainvoke({"text": text})
+            # 使用LLM分析情感
+            response = await self.emotion_chain.ainvoke({"text": text})
 
-            # 获取情感维度数据
-            dimensions = result.dimensions.model_dump()
+            # 提取模型输出的情感编号（假设模型直接输出1-8的数字）
+            # 清理输出，移除可能的空格和其他文本
+            emotion_code_str = response.content.strip()
 
-            # 找出强度最大的情感
-            emotion_mapping = {
-                "joy": 1,  # 喜悦
-                "trust": 2,  # 信任
-                "fear": 3,  # 恐惧
-                "surprise": 4,  # 惊讶
-                "sadness": 5,  # 悲伤
-                "disgust": 6,  # 厌恶
-                "anger": 7,  # 愤怒
-                "anticipation": 8,  # 期待
-            }
+            # 提取数字（移除可能的额外文本）
+            import re
 
-            # 找出强度值最大的情感
-            max_emotion = max(dimensions.items(), key=lambda x: x[1])
-            max_emotion_name, max_emotion_value = max_emotion
+            emotion_code_match = re.search(r"\b[1-8]\b", emotion_code_str)
 
-            # 将最大情感映射为1-8
-            max_emotion_code = emotion_mapping[max_emotion_name]
+            if emotion_code_match:
+                emotion_code = int(emotion_code_match.group())
 
-            # 发送强度最大的情感编码到TouchDesigner
-            self.osc_client.send_message("/emotion", [max_emotion_code])
+                # 数字验证（确保在1-8范围内）
+                if 1 <= emotion_code <= 8:
+                    # 发送情感编码到TouchDesigner
+                    self.osc_client.send_message("/emotion", [emotion_code])
 
-            # 打印分析结果
-            print(f"\n[情感分析结果]")
-            print(f"主要情感: {result.dominant_emotion}")
-            print(
-                f"最强情感: {max_emotion_name} (强度: {max_emotion_value:.2f}, 编码: {max_emotion_code})"
-            )
-            for emotion, value in dimensions.items():
-                print(f"{emotion}: {value:.2f}")
-            print(f"解释: {result.brief_explanation}")
+                    # 打印分析结果
+                    print(f"\n[情感分析结果]")
+                    print(
+                        f"情感编码: {emotion_code} - {EMOTION_NAMES.get(emotion_code, '未知')}"
+                    )
+                else:
+                    print(f"[警告] 接收到超出范围的情感编码: {emotion_code}")
+            else:
+                print(f"[警告] 无法从输出中提取情感编码: '{emotion_code_str}'")
 
         except Exception as e:
             print(f"[错误] 处理文本时发生错误: {str(e)}")
@@ -157,7 +122,7 @@ class VoiceProcessor:
     async def run(self):
         """运行文件监控循环"""
         print(f"监控目录中: {INPUT_DIR}...")
-        print(f"使用Plutchik情感轮进行多维度情感分析")
+        print(f"使用简化的情感分析流程，直接输出情感编码(1-8)")
         try:
             while True:
                 new_files = await self.scan_directory()
