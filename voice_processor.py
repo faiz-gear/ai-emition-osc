@@ -119,7 +119,7 @@ class VoiceProcessor:
             max_emotion_code = emotion_mapping[max_emotion_name]
 
             # 发送强度最大的情感编码到TouchDesigner
-            self.osc_client.send_message("/dominant_emotion", [max_emotion_code])
+            self.osc_client.send_message("/emotion", [max_emotion_code])
 
             # 打印分析结果
             print(f"\n[情感分析结果]")
