@@ -100,33 +100,45 @@ class VoiceProcessor:
             dimensions = result.dimensions.model_dump()
 
             # 找出强度最大的情感
-            emotion_mapping = {
-                "joy": 1,  # 喜悦
-                "trust": 2,  # 信任
-                "fear": 3,  # 恐惧
-                "surprise": 4,  # 惊讶
-                "sadness": 5,  # 悲伤
-                "disgust": 6,  # 厌恶
-                "anger": 7,  # 愤怒
-                "anticipation": 8,  # 期待
-            }
+            # emotion_mapping = {
+            #     "joy": 1,  # 喜悦
+            #     "trust": 2,  # 信任
+            #     "fear": 3,  # 恐惧
+            #     "surprise": 4,  # 惊讶
+            #     "sadness": 5,  # 悲伤
+            #     "disgust": 6,  # 厌恶
+            #     "anger": 7,  # 愤怒
+            #     "anticipation": 8,  # 期待
+            # }
 
             # 找出强度值最大的情感
-            max_emotion = max(dimensions.items(), key=lambda x: x[1])
-            max_emotion_name, max_emotion_value = max_emotion
+            # max_emotion = max(dimensions.items(), key=lambda x: x[1])
+            # max_emotion_name, max_emotion_value = max_emotion
 
-            # 将最大情感映射为1-8
-            max_emotion_code = emotion_mapping[max_emotion_name]
+            # # 将最大情感映射为1-8
+            # max_emotion_code = emotion_mapping[max_emotion_name]
 
             # 发送强度最大的情感编码到TouchDesigner
-            self.osc_client.send_message("/emotion", [max_emotion_code])
+            self.osc_client.send_message(
+                "/emotion",
+                [
+                    dimensions["joy"],
+                    dimensions["trust"],
+                    dimensions["fear"],
+                    dimensions["surprise"],
+                    dimensions["sadness"],
+                    dimensions["disgust"],
+                    dimensions["anger"],
+                    dimensions["anticipation"],
+                ],
+            )
 
             # 打印分析结果
             print(f"\n[情感分析结果]")
             print(f"主要情感: {result.dominant_emotion}")
-            print(
-                f"最强情感: {max_emotion_name} (强度: {max_emotion_value:.2f}, 编码: {max_emotion_code})"
-            )
+            # print(
+            #     f"最强情感: {max_emotion_name} (强度: {max_emotion_value:.2f}, 编码: {max_emotion_code})"
+            # )
             for emotion, value in dimensions.items():
                 print(f"{emotion}: {value:.2f}")
             print(f"解释: {result.brief_explanation}")
