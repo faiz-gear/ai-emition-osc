@@ -7,6 +7,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 打印所有环境变量
+print("环境变量：")
+for key, value in os.environ.items():
+    print(f"{key}: {value}")
+
 
 async def main():
     # 创建情绪分析处理器
