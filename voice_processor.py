@@ -51,7 +51,7 @@ class EmotionDimensions(BaseModel):
 
     @field_validator("*")
     def check_values(cls, v):
-        return round(max(0.0, min(1.0, v)), 2)
+        return round(max(0.0, min(1.0, v)), 1)
 
 
 class EmotionAnalysis(BaseModel):
@@ -103,38 +103,36 @@ class VoiceProcessor:
             # 获取情感维度数据
             dimensions = result.dimensions.model_dump()
 
-            # 找出强度最大的情感
-            # emotion_mapping = {
-            #     "joy": 1,  # 喜悦
-            #     "trust": 2,  # 信任
-            #     "fear": 3,  # 恐惧
-            #     "surprise": 4,  # 惊讶
-            #     "sadness": 5,  # 悲伤
-            #     "disgust": 6,  # 厌恶
-            #     "anger": 7,  # 愤怒
-            #     "anticipation": 8,  # 期待
-            # }
+            # 定义情感映射（用于打印）
+            emotion_mapping = {
+                "joy": "喜悦",
+                "trust": "信任",
+                "fear": "恐惧",
+                "surprise": "惊讶",
+                "sadness": "悲伤",
+                "disgust": "厌恶",
+                "anger": "愤怒",
+                "anticipation": "期待",
+            }
 
-            # 找出强度值最大的情感
-            # max_emotion = max(dimensions.items(), key=lambda x: x[1])
-            # max_emotion_name, max_emotion_value = max_emotion
+            # 根据我们的新提示词模板，应该已经有一个情感为1，其他为0
+            # 但我们再次确认，找到最强的情感
+            dominant_emotion = max(dimensions.items(), key=lambda x: x[1])
+            dominant_name, dominant_value = dominant_emotion
 
-            # # 将最大情感映射为1-8
-            # max_emotion_code = emotion_mapping[max_emotion_name]
+            # 创建二进制情感向量：最强情感为1，其他为0
+            binary_emotions = [0.0] * 8
+            emotion_list = list(dimensions.keys())
+            binary_emotions[emotion_list.index(dominant_name)] = 1.0
 
-            # 发送强度最大的情感编码到TouchDesigner
-            emotions = [float(value) for value in dimensions.values()]
-            self.osc_client.send_message("/emotion", emotions)
+            # 发送二进制情感向量到TouchDesigner
+            self.osc_client.send_message("/emotion", binary_emotions)
 
             # 打印分析结果
             print(f"\n[情感分析结果]")
             print(f"主要情感: {result.dominant_emotion}")
-            # print(
-            #     f"最强情感: {max_emotion_name} (强度: {max_emotion_value:.2f}, 编码: {max_emotion_code})"
-            # )
-            print(f"发送给TouchDesigner的情感数据: {emotions}")
-            for emotion, value in dimensions.items():
-                print(f"{emotion}: {value:.2f}")
+            print(f"最强情感: {dominant_name} ({emotion_mapping[dominant_name]})")
+            print(f"发送给TouchDesigner的情感数据: {binary_emotions}")
             print(f"解释: {result.brief_explanation}")
 
         except Exception as e:
@@ -163,7 +161,7 @@ class VoiceProcessor:
     async def run(self):
         """运行文件监控循环"""
         print(f"监控目录中: {INPUT_DIR}...")
-        print(f"使用Plutchik情感轮进行多维度情感分析")
+        print(f"使用Plutchik情感轮进行二元情感分析 - 最强情感为1，其他为0")
         try:
             while True:
                 new_files = await self.scan_directory()

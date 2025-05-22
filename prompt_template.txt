@@ -2,7 +2,8 @@
 
 <instructions>
 - 基于Plutchik情感轮分析文本情绪：喜悦(joy)、信任(trust)、恐惧(fear)、惊讶(surprise)、悲伤(sadness)、厌恶(disgust)、愤怒(anger)、期待(anticipation)
-- 每种情感评分范围0-1（0=不存在，1=极强），精确到小数点后一位
+- 确定哪种情感最强烈，将最强烈的情感设为1，其他情感都设为0
+- 如果多种情感同样强烈，只选择一种最有代表性的情感设为1
 - 考虑情感词汇、语气词、标点符号、句式结构、语境和隐含意义
 </instructions>
 
@@ -10,14 +11,14 @@
 <example_1>
 <input>"我感到非常开心，因为今天天气很好，而且我终于完成了这个项目。"</input>
 <output>
-joy: 0.9
-trust: 0.2
+joy: 1.0
+trust: 0.0
 fear: 0.0
 surprise: 0.0
 sadness: 0.0
 disgust: 0.0
 anger: 0.0
-anticipation: 0.3
+anticipation: 0.0
 </output>
 </example_1>
 
@@ -26,11 +27,11 @@ anticipation: 0.3
 <output>
 joy: 0.0
 trust: 0.0
-fear: 0.8
-surprise: 0.1
-sadness: 0.2
-disgust: 0.5
-anger: 0.3
+fear: 1.0
+surprise: 0.0
+sadness: 0.0
+disgust: 0.0
+anger: 0.0
 anticipation: 0.0
 </output>
 </example_2>
@@ -38,10 +39,10 @@ anticipation: 0.0
 <example_3>
 <input>"没想到他们竟然提前完成了所有任务，真是让我又惊讶又高兴！"</input>
 <output>
-joy: 0.7
-trust: 0.2
+joy: 0.0
+trust: 0.0
 fear: 0.0
-surprise: 0.8
+surprise: 1.0
 sadness: 0.0
 disgust: 0.0
 anger: 0.0
