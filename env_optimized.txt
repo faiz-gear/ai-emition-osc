@@ -1,0 +1,21 @@
+# 优化版环境变量配置
+# 复制此文件内容到 .env 文件使用
+
+# LLM配置 - 性能优化
+AI_EMOTION_LLM_MODEL=deepseek-r1:1.5b
+AI_EMOTION_LLM_TEMPERATURE=0.3
+
+# 提示词模板 - 使用增强版
+AI_EMOTION_PROMPT_TEMPLATE=prompt_template_enhanced.txt
+
+# OSC配置
+AI_EMOTION_OSC_IP=127.0.0.1
+AI_EMOTION_OSC_PORT=7000
+
+# 语音识别配置
+AI_EMOTION_VOSK_MODEL=vosk-model-small-cn
+AI_EMOTION_SAMPLE_RATE=16000
+
+# 其他配置
+AI_EMOTION_INPUT_DIR=/opt/ai-emotion/input
+AI_EMOTION_POLL_INTERVAL=1 
