@@ -96,9 +96,18 @@ class QwenVoiceProcessor:
 
         # 构建包含格式指令的prompt
         format_instructions = self.output_parser.get_format_instructions()
-        full_template = EMOTION_PROMPT_TEMPLATE.replace(
+
+        # 先替换TEXT占位符，然后转义格式指令中的大括号
+        template_with_text = EMOTION_PROMPT_TEMPLATE.replace("{{TEXT}}", "{text}")
+
+        # 将格式指令中的大括号进行转义，避免被ChatPromptTemplate误认为是变量
+        escaped_format_instructions = format_instructions.replace("{", "{{").replace(
+            "}", "}}"
+        )
+
+        full_template = template_with_text.replace(
             "请严格按照后续Langchain的PydanticOutputParser指定的格式输出8种情绪各自的强度值（0 - 1）。",
-            f"请严格按照以下格式输出：\n{format_instructions}",
+            f"请严格按照以下格式输出：\n{escaped_format_instructions}",
         )
 
         self.prompt = ChatPromptTemplate.from_template(full_template)
