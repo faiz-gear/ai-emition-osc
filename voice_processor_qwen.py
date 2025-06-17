@@ -1,14 +1,12 @@
-# voice_processor_qwen.py - 针对Qwen2.5优化的情绪分析处理器
+# voice_processor_qwen.py - 针对Qwen2.5优化的情绪分析处理器（正则表达式版本）
 import os
 import re
 import asyncio
 from pathlib import Path
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
 from langchain_ollama import ChatOllama
 from pythonosc import udp_client
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator
 
 load_dotenv()
 
@@ -21,8 +19,8 @@ LLM_TEMPERATURE = float(os.environ.get("AI_EMOTION_LLM_TEMPERATURE", "0.2"))
 # Qwen2.5 特殊参数
 NUM_CTX = int(os.environ.get("AI_EMOTION_NUM_CTX", "2048"))
 NUM_PREDICT = int(
-    os.environ.get("AI_EMOTION_NUM_PREDICT", "512")
-)  # 增加预测长度以支持JSON输出
+    os.environ.get("AI_EMOTION_NUM_PREDICT", "256")
+)  # 减少预测长度，因为不需要JSON
 TOP_K = int(os.environ.get("AI_EMOTION_TOP_K", "20"))
 TOP_P = float(os.environ.get("AI_EMOTION_TOP_P", "0.8"))
 
@@ -34,68 +32,34 @@ with open(PROMPT_TEMPLATE_PATH, "r", encoding="utf-8") as f:
     EMOTION_PROMPT_TEMPLATE = f.read()
 
 
-class EmotionDimensions(BaseModel):
-    """Plutchik情感轮的八种基本情感维度"""
-
-    joy: float = Field(default=0.0, ge=0.0, le=1.0, description="喜悦情绪强度，范围0-1")
-    trust: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="信任情绪强度，范围0-1"
-    )
-    fear: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="恐惧情绪强度，范围0-1"
-    )
-    surprise: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="惊讶情绪强度，范围0-1"
-    )
-    sadness: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="悲伤情绪强度，范围0-1"
-    )
-    disgust: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="厌恶情绪强度，范围0-1"
-    )
-    anger: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="愤怒情绪强度，范围0-1"
-    )
-    anticipation: float = Field(
-        default=0.0, ge=0.0, le=1.0, description="期待情绪强度，范围0-1"
-    )
-
-    @field_validator("*")
-    def check_values(cls, v):
-        return round(max(0.0, min(1.0, v)), 1)
-
-
 class QwenVoiceProcessor:
     def __init__(self):
         self.osc_client = udp_client.SimpleUDPClient(OSC_IP, OSC_PORT)
 
-        # 情绪映射
+        # 情绪映射 - 按照新模板的顺序
         self.emotion_mapping = {
             "joy": 0,
-            "trust": 1,
-            "fear": 2,
-            "surprise": 3,
-            "sadness": 4,
+            "sadness": 1,
+            "anger": 2,
+            "fear": 3,
+            "surprise": 4,
             "disgust": 5,
-            "anger": 6,
+            "trust": 6,
             "anticipation": 7,
         }
 
         self.emotion_names = {
             "joy": "喜悦",
-            "trust": "信任",
+            "sadness": "悲伤",
+            "anger": "愤怒",
             "fear": "恐惧",
             "surprise": "惊讶",
-            "sadness": "悲伤",
             "disgust": "厌恶",
-            "anger": "愤怒",
+            "trust": "信任",
             "anticipation": "期待",
         }
 
-        # 创建输出解析器
-        self.output_parser = PydanticOutputParser(pydantic_object=EmotionDimensions)
-
-        # 初始化针对Qwen2.5优化的LLM
+        # 初始化针对Qwen2.5优化的LLM（移除JSON格式限制）
         self.llm = ChatOllama(
             model=LLM_MODEL,
             temperature=LLM_TEMPERATURE,
@@ -105,76 +69,104 @@ class QwenVoiceProcessor:
             top_p=TOP_P,
             repeat_penalty=1.1,  # 减少重复
             stop=["\n\n", "输入：", "现在请分析"],  # 停止词
-            format="json",  # 强制JSON格式输出
         )
 
-        # 构建包含格式指令的prompt - 使用更安全的方法
-        format_instructions = self.output_parser.get_format_instructions()
-
-        # 先替换TEXT占位符
+        # 构建prompt - 直接使用模板
         template_with_text = EMOTION_PROMPT_TEMPLATE.replace("{{TEXT}}", "{text}")
+        self.prompt = ChatPromptTemplate.from_template(template_with_text)
+        self.emotion_chain = self.prompt | self.llm
 
-        # 创建两步骤的prompt：基础模板 + 单独的格式指令
-        # 将格式指令作为系统消息而不是直接插入模板
-        base_template = template_with_text.replace(
-            "请严格按照后续Langchain的PydanticOutputParser指定的格式输出8种情绪各自的强度值（0 - 1）。",
-            """请严格按照JSON格式输出所有8种情绪各自的强度值（0 - 1）。
-            
-必须包含以下所有字段：joy, trust, fear, surprise, sadness, disgust, anger, anticipation
+    def parse_emotion_output(self, output: str) -> dict:
+        """使用正则表达式解析情绪输出"""
+        emotions = {
+            "joy": 0.0,
+            "sadness": 0.0,
+            "anger": 0.0,
+            "fear": 0.0,
+            "surprise": 0.0,
+            "disgust": 0.0,
+            "trust": 0.0,
+            "anticipation": 0.0,
+        }
 
-示例输出格式：
-{
-    "joy": 0.8,
-    "trust": 0.0,
-    "fear": 0.0,
-    "surprise": 0.0,
-    "sadness": 0.0,
-    "disgust": 0.0,
-    "anger": 0.0,
-    "anticipation": 0.2
-}
+        try:
+            # 正则表达式匹配格式：emotion|value
+            pattern = r"(\w+)\|([0-9]*\.?[0-9]+)"
+            matches = re.findall(pattern, output)
 
-请确保输出包含所有8个字段，即使某些情绪强度为0也必须明确列出。""",
-        )
+            if matches:
+                for emotion, value in matches:
+                    emotion = emotion.lower()
+                    if emotion in emotions:
+                        try:
+                            parsed_value = float(value)
+                            # 确保值在0-1范围内
+                            emotions[emotion] = round(
+                                max(0.0, min(1.0, parsed_value)), 2
+                            )
+                        except ValueError:
+                            print(f"[警告] 无法解析情绪值: {emotion}|{value}")
 
-        # 使用ChatPromptTemplate.from_messages来避免格式指令中的大括号问题
-        from langchain_core.messages import HumanMessage, SystemMessage
+            else:
+                print(f"[警告] 未找到匹配的情绪格式，尝试备用解析")
+                # 备用解析方案 - 寻找更宽松的模式
+                backup_pattern = r"(\w+)[:|：|=]\s*([0-9]*\.?[0-9]+)"
+                backup_matches = re.findall(backup_pattern, output)
 
-        self.prompt = ChatPromptTemplate.from_messages(
-            [
-                SystemMessage(content=f"你是专业的情绪分析AI。{format_instructions}"),
-                HumanMessage(content=base_template),
-            ]
-        )
-        self.emotion_chain = self.prompt | self.llm | self.output_parser
+                for emotion, value in backup_matches:
+                    emotion = emotion.lower()
+                    if emotion in emotions:
+                        try:
+                            parsed_value = float(value)
+                            emotions[emotion] = round(
+                                max(0.0, min(1.0, parsed_value)), 2
+                            )
+                        except ValueError:
+                            continue
 
-    def create_emotion_vector(self, emotions: EmotionDimensions) -> list:
-        """将EmotionDimensions对象转换为OSC向量"""
+        except Exception as e:
+            print(f"[错误] 解析情绪输出时发生错误: {str(e)}")
+            print(f"[错误] 原始输出: {output}")
+
+        return emotions
+
+    def create_emotion_vector(self, emotions: dict) -> list:
+        """将情绪字典转换为OSC向量（按照新模板的顺序）"""
         return [
-            emotions.joy,
-            emotions.trust,
-            emotions.fear,
-            emotions.surprise,
-            emotions.sadness,
-            emotions.disgust,
-            emotions.anger,
-            emotions.anticipation,
+            emotions["joy"],
+            emotions["sadness"],
+            emotions["anger"],
+            emotions["fear"],
+            emotions["surprise"],
+            emotions["disgust"],
+            emotions["trust"],
+            emotions["anticipation"],
         ]
 
-    def get_dominant_emotion(self, emotions: EmotionDimensions) -> tuple[str, float]:
+    def get_dominant_emotion(self, emotions: dict) -> tuple[str, float]:
         """获取主导情绪及其强度"""
-        emotion_dict = emotions.model_dump()
-        dominant_emotion = max(emotion_dict.items(), key=lambda x: x[1])
+        dominant_emotion = max(emotions.items(), key=lambda x: x[1])
         return dominant_emotion
 
     async def process_text(self, text: str) -> None:
-        """使用Qwen2.5和结构化输出处理文本并分析情绪"""
+        """使用正则表达式处理文本并分析情绪"""
         if not text.strip():
             return
 
         try:
-            # 情感分析 - 使用结构化输出
-            emotions = await self.emotion_chain.ainvoke({"text": text})
+            # 情感分析 - 获取原始文本输出
+            result = await self.emotion_chain.ainvoke({"text": text})
+
+            # 提取实际的文本内容
+            if hasattr(result, "content"):
+                raw_output = result.content
+            else:
+                raw_output = str(result)
+
+            print(f"\n[原始LLM输出]: {raw_output}")
+
+            # 使用正则表达式解析情绪值
+            emotions = self.parse_emotion_output(raw_output)
 
             # 创建情感向量
             emotion_vector = self.create_emotion_vector(emotions)
@@ -186,13 +178,13 @@ class QwenVoiceProcessor:
             dominant_emotion, dominant_intensity = self.get_dominant_emotion(emotions)
 
             # 打印结果
-            print(f"\n[Qwen2.5结构化情感分析]")
+            print(f"\n[Qwen2.5正则解析情感分析]")
             print(f"识别文本: {text}")
             print(
                 f"主要情感: {self.emotion_names[dominant_emotion]} (强度: {dominant_intensity})"
             )
             print(f"详细情感分析:")
-            for emotion, intensity in emotions.model_dump().items():
+            for emotion, intensity in emotions.items():
                 if intensity > 0:
                     print(f"  {self.emotion_names[emotion]}: {intensity}")
             print(f"OSC数据: {emotion_vector}")
@@ -212,37 +204,55 @@ class QwenVoiceProcessor:
                 print(f"[错误] 回退方案也失败: {fallback_error}")
                 # 最终的默认值
                 try:
-                    default_emotions = EmotionDimensions()  # 使用默认值
+                    default_emotions = {
+                        "joy": 0.0,
+                        "sadness": 0.0,
+                        "anger": 0.0,
+                        "fear": 0.0,
+                        "surprise": 0.0,
+                        "disgust": 0.0,
+                        "trust": 0.0,
+                        "anticipation": 0.0,
+                    }
                     default_vector = self.create_emotion_vector(default_emotions)
                     self.osc_client.send_message("/emotion", default_vector)
                     print(f"[信息] 发送默认情感向量: {default_vector}")
                 except Exception as final_error:
                     print(f"[错误] 发送默认值时也发生错误: {final_error}")
 
-    def _create_fallback_emotions(self, text: str) -> EmotionDimensions:
+    def _create_fallback_emotions(self, text: str) -> dict:
         """基于关键词的简单回退情感分析"""
-        emotions = EmotionDimensions()  # 全部使用默认值0.0
+        emotions = {
+            "joy": 0.0,
+            "sadness": 0.0,
+            "anger": 0.0,
+            "fear": 0.0,
+            "surprise": 0.0,
+            "disgust": 0.0,
+            "trust": 0.0,
+            "anticipation": 0.0,
+        }
         text_lower = text.lower()
 
         # 简单的关键词匹配
         if any(word in text_lower for word in ["开心", "高兴", "愉快", "快乐", "兴奋"]):
-            emotions.joy = 0.7
+            emotions["joy"] = 0.7
         elif any(word in text_lower for word in ["生气", "愤怒", "恼火", "气愤"]):
-            emotions.anger = 0.7
+            emotions["anger"] = 0.7
         elif any(word in text_lower for word in ["难过", "悲伤", "伤心", "沮丧"]):
-            emotions.sadness = 0.7
+            emotions["sadness"] = 0.7
         elif any(word in text_lower for word in ["害怕", "恐惧", "紧张", "担心"]):
-            emotions.fear = 0.7
+            emotions["fear"] = 0.7
         elif any(word in text_lower for word in ["惊讶", "意外", "震惊", "吃惊"]):
-            emotions.surprise = 0.7
+            emotions["surprise"] = 0.7
         elif any(word in text_lower for word in ["厌恶", "恶心", "讨厌", "反感"]):
-            emotions.disgust = 0.7
+            emotions["disgust"] = 0.7
         elif any(word in text_lower for word in ["期待", "期望", "盼望", "憧憬"]):
-            emotions.anticipation = 0.7
+            emotions["anticipation"] = 0.7
         elif any(word in text_lower for word in ["信任", "相信", "依靠", "可靠"]):
-            emotions.trust = 0.7
+            emotions["trust"] = 0.7
         else:
             # 如果没有明显情绪词，给一个微弱的正面情绪
-            emotions.joy = 0.3
+            emotions["joy"] = 0.3
 
         return emotions

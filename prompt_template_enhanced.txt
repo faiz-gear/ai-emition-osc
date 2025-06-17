@@ -32,36 +32,18 @@
 4. **文化背景**: 理解中文表达的含蓄特点
 
 ## 输出格式
-后续将由Langchain的PydanticOutputParser指定输出格式，请按照指定格式输出8种情绪各自的强度值（0 - 1）。
+输出格式为joy|强度值, sadness|强度值, anger|强度值, fear|强度值, surprise|强度值, disgust|强度值, trust|强度值, anticipation|强度值，其中强度值范围为0 - 1。
 
 ## 示例分析
 输入："今天收到了期待已久的录取通知书，真的太开心了！"
-输出（假设后续指定格式）：{
-    "joy": 1,
-    "sadness": 0,
-    "anger": 0,
-    "fear": 0,
-    "surprise": 0,
-    "disgust": 0,
-    "trust": 0,
-    "anticipation": 0
-}
+输出：joy|1, sadness|0, anger|0, fear|0, surprise|0, disgust|0, trust|0, anticipation|0
 
 输入："又要加班到很晚，真是够了..."
-输出（假设后续指定格式）：{
-    "joy": 0,
-    "sadness": 0,
-    "anger": 1,
-    "fear": 0,
-    "surprise": 0,
-    "disgust": 0,
-    "trust": 0,
-    "anticipation": 0
-}
+输出：joy|0, sadness|0, anger|1, fear|0, surprise|0, disgust|0, trust|0, anticipation|0
 
 以下是需要你分析的文本：
 <text>
 {{TEXT}}
 </text>
 
-请严格按照后续Langchain的PydanticOutputParser指定的格式输出8种情绪各自的强度值（0 - 1）。
+请严格按照上述格式输出8种情绪各自的强度值（0 - 1）。
