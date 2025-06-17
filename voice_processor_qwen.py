@@ -94,23 +94,28 @@ class QwenVoiceProcessor:
             format="json",  # 强制JSON格式输出
         )
 
-        # 构建包含格式指令的prompt
+        # 构建包含格式指令的prompt - 使用更安全的方法
         format_instructions = self.output_parser.get_format_instructions()
 
-        # 先替换TEXT占位符，然后转义格式指令中的大括号
+        # 先替换TEXT占位符
         template_with_text = EMOTION_PROMPT_TEMPLATE.replace("{{TEXT}}", "{text}")
 
-        # 将格式指令中的大括号进行转义，避免被ChatPromptTemplate误认为是变量
-        escaped_format_instructions = format_instructions.replace("{", "{{").replace(
-            "}", "}}"
-        )
-
-        full_template = template_with_text.replace(
+        # 创建两步骤的prompt：基础模板 + 单独的格式指令
+        # 将格式指令作为系统消息而不是直接插入模板
+        base_template = template_with_text.replace(
             "请严格按照后续Langchain的PydanticOutputParser指定的格式输出8种情绪各自的强度值（0 - 1）。",
-            f"请严格按照以下格式输出：\n{escaped_format_instructions}",
+            "请严格按照JSON格式输出8种情绪各自的强度值（0 - 1），输出格式要求将在后续消息中说明。",
         )
 
-        self.prompt = ChatPromptTemplate.from_template(full_template)
+        # 使用ChatPromptTemplate.from_messages来避免格式指令中的大括号问题
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        self.prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content=f"格式要求: {format_instructions}"),
+                HumanMessage(content=base_template),
+            ]
+        )
         self.emotion_chain = self.prompt | self.llm | self.output_parser
 
     def create_emotion_vector(self, emotions: EmotionDimensions) -> list:
