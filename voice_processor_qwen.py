@@ -37,14 +37,28 @@ with open(PROMPT_TEMPLATE_PATH, "r", encoding="utf-8") as f:
 class EmotionDimensions(BaseModel):
     """Plutchik情感轮的八种基本情感维度"""
 
-    joy: float = Field(ge=0.0, le=1.0, description="喜悦情绪强度，范围0-1")
-    trust: float = Field(ge=0.0, le=1.0, description="信任情绪强度，范围0-1")
-    fear: float = Field(ge=0.0, le=1.0, description="恐惧情绪强度，范围0-1")
-    surprise: float = Field(ge=0.0, le=1.0, description="惊讶情绪强度，范围0-1")
-    sadness: float = Field(ge=0.0, le=1.0, description="悲伤情绪强度，范围0-1")
-    disgust: float = Field(ge=0.0, le=1.0, description="厌恶情绪强度，范围0-1")
-    anger: float = Field(ge=0.0, le=1.0, description="愤怒情绪强度，范围0-1")
-    anticipation: float = Field(ge=0.0, le=1.0, description="期待情绪强度，范围0-1")
+    joy: float = Field(default=0.0, ge=0.0, le=1.0, description="喜悦情绪强度，范围0-1")
+    trust: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="信任情绪强度，范围0-1"
+    )
+    fear: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="恐惧情绪强度，范围0-1"
+    )
+    surprise: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="惊讶情绪强度，范围0-1"
+    )
+    sadness: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="悲伤情绪强度，范围0-1"
+    )
+    disgust: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="厌恶情绪强度，范围0-1"
+    )
+    anger: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="愤怒情绪强度，范围0-1"
+    )
+    anticipation: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="期待情绪强度，范围0-1"
+    )
 
     @field_validator("*")
     def check_values(cls, v):
@@ -104,7 +118,23 @@ class QwenVoiceProcessor:
         # 将格式指令作为系统消息而不是直接插入模板
         base_template = template_with_text.replace(
             "请严格按照后续Langchain的PydanticOutputParser指定的格式输出8种情绪各自的强度值（0 - 1）。",
-            "请严格按照JSON格式输出8种情绪各自的强度值（0 - 1），输出格式要求将在后续消息中说明。",
+            """请严格按照JSON格式输出所有8种情绪各自的强度值（0 - 1）。
+            
+必须包含以下所有字段：joy, trust, fear, surprise, sadness, disgust, anger, anticipation
+
+示例输出格式：
+{
+    "joy": 0.8,
+    "trust": 0.0,
+    "fear": 0.0,
+    "surprise": 0.0,
+    "sadness": 0.0,
+    "disgust": 0.0,
+    "anger": 0.0,
+    "anticipation": 0.2
+}
+
+请确保输出包含所有8个字段，即使某些情绪强度为0也必须明确列出。""",
         )
 
         # 使用ChatPromptTemplate.from_messages来避免格式指令中的大括号问题
@@ -112,7 +142,7 @@ class QwenVoiceProcessor:
 
         self.prompt = ChatPromptTemplate.from_messages(
             [
-                SystemMessage(content=f"格式要求: {format_instructions}"),
+                SystemMessage(content=f"你是专业的情绪分析AI。{format_instructions}"),
                 HumanMessage(content=base_template),
             ]
         )
@@ -169,20 +199,50 @@ class QwenVoiceProcessor:
 
         except Exception as e:
             print(f"[错误] 处理文本时发生错误: {str(e)}")
-            # 发送默认值 - 创建默认的EmotionDimensions对象
+
+            # 尝试使用简化的回退方案
             try:
-                default_emotions = EmotionDimensions(
-                    joy=0.5,
-                    trust=0.0,
-                    fear=0.0,
-                    surprise=0.0,
-                    sadness=0.0,
-                    disgust=0.0,
-                    anger=0.0,
-                    anticipation=0.0,
-                )
-                default_vector = self.create_emotion_vector(default_emotions)
-                self.osc_client.send_message("/emotion", default_vector)
-                print(f"[信息] 发送默认情感向量: {default_vector}")
+                print("[信息] 尝试使用回退方案...")
+                fallback_emotions = self._create_fallback_emotions(text)
+                fallback_vector = self.create_emotion_vector(fallback_emotions)
+                self.osc_client.send_message("/emotion", fallback_vector)
+                print(f"[信息] 使用回退情感分析结果: {fallback_vector}")
+
             except Exception as fallback_error:
-                print(f"[错误] 发送默认值时也发生错误: {fallback_error}")
+                print(f"[错误] 回退方案也失败: {fallback_error}")
+                # 最终的默认值
+                try:
+                    default_emotions = EmotionDimensions()  # 使用默认值
+                    default_vector = self.create_emotion_vector(default_emotions)
+                    self.osc_client.send_message("/emotion", default_vector)
+                    print(f"[信息] 发送默认情感向量: {default_vector}")
+                except Exception as final_error:
+                    print(f"[错误] 发送默认值时也发生错误: {final_error}")
+
+    def _create_fallback_emotions(self, text: str) -> EmotionDimensions:
+        """基于关键词的简单回退情感分析"""
+        emotions = EmotionDimensions()  # 全部使用默认值0.0
+        text_lower = text.lower()
+
+        # 简单的关键词匹配
+        if any(word in text_lower for word in ["开心", "高兴", "愉快", "快乐", "兴奋"]):
+            emotions.joy = 0.7
+        elif any(word in text_lower for word in ["生气", "愤怒", "恼火", "气愤"]):
+            emotions.anger = 0.7
+        elif any(word in text_lower for word in ["难过", "悲伤", "伤心", "沮丧"]):
+            emotions.sadness = 0.7
+        elif any(word in text_lower for word in ["害怕", "恐惧", "紧张", "担心"]):
+            emotions.fear = 0.7
+        elif any(word in text_lower for word in ["惊讶", "意外", "震惊", "吃惊"]):
+            emotions.surprise = 0.7
+        elif any(word in text_lower for word in ["厌恶", "恶心", "讨厌", "反感"]):
+            emotions.disgust = 0.7
+        elif any(word in text_lower for word in ["期待", "期望", "盼望", "憧憬"]):
+            emotions.anticipation = 0.7
+        elif any(word in text_lower for word in ["信任", "相信", "依靠", "可靠"]):
+            emotions.trust = 0.7
+        else:
+            # 如果没有明显情绪词，给一个微弱的正面情绪
+            emotions.joy = 0.3
+
+        return emotions
