@@ -32,4 +32,15 @@
 {{TEXT}}
 </text>
 
-请按照以下格式输出结果：joy|强度值, sadness|强度值, anger|强度值, fear|强度值, surprise|强度值, disgust|强度值, trust|强度值, anticipation|强度值，其中强度值范围为0 - 1。
+请按照以下格式输出结果：
+<output>
+joy: 强度值
+sadness: 强度值
+anger: 强度值
+fear: 强度值
+surprise: 强度值
+disgust: 强度值
+trust: 强度值
+anticipation: 强度值
+</output>
+<output>

@@ -130,7 +130,7 @@ class QwenVoiceProcessor:
         }
 
     def parse_emotion_output(self, output: str, request_id: str = None) -> dict:
-        """使用正则表达式解析情绪输出"""
+        """使用正则表达式解析情绪输出，适配新版prompt格式"""
         emotions = {
             "joy": 0.0,
             "sadness": 0.0,
@@ -143,9 +143,10 @@ class QwenVoiceProcessor:
         }
 
         try:
-            # 正则表达式匹配格式：emotion|value
-            pattern = r"(\w+)\|([0-9]*\.?[0-9]+)"
-            matches = re.findall(pattern, output)
+            # 新版prompt格式：每行为 emotion: value
+            # 支持: joy: 0.0、joy：0.0、joy=0.0
+            pattern = r"(joy|sadness|anger|fear|surprise|disgust|trust|anticipation)\s*[:：=]\s*([0-9]*\.?[0-9]+)"
+            matches = re.findall(pattern, output, re.IGNORECASE)
 
             if matches:
                 self._log_info(f"找到 {len(matches)} 个情绪匹配项", request_id)
@@ -163,14 +164,13 @@ class QwenVoiceProcessor:
                             )
                         except ValueError:
                             self._log_warning(
-                                f"无法解析情绪值: {emotion}|{value}", request_id
+                                f"无法解析情绪值: {emotion}:{value}", request_id
                             )
-
             else:
                 self._log_warning("未找到匹配的情绪格式，尝试备用解析", request_id)
-                # 备用解析方案 - 寻找更宽松的模式
-                backup_pattern = r"(\w+)[:|：|=]\s*([0-9]*\.?[0-9]+)"
-                backup_matches = re.findall(backup_pattern, output)
+                # 备用解析方案 - 支持更宽松的分隔符
+                backup_pattern = r"(joy|sadness|anger|fear|surprise|disgust|trust|anticipation)\s*[:|：|=]\s*([0-9]*\.?[0-9]+)"
+                backup_matches = re.findall(backup_pattern, output, re.IGNORECASE)
 
                 if backup_matches:
                     self._log_info(
@@ -190,7 +190,7 @@ class QwenVoiceProcessor:
                                 )
                             except ValueError:
                                 self._log_warning(
-                                    f"备用解析失败: {emotion}|{value}", request_id
+                                    f"备用解析失败: {emotion}:{value}", request_id
                                 )
                                 continue
                 else:
