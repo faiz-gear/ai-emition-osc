@@ -4,9 +4,11 @@ import re
 import asyncio
 from pathlib import Path
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
 from langchain_ollama import ChatOllama
 from pythonosc import udp_client
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field, field_validator
 
 load_dotenv()
 
@@ -18,7 +20,9 @@ LLM_TEMPERATURE = float(os.environ.get("AI_EMOTION_LLM_TEMPERATURE", "0.2"))
 
 # Qwen2.5 特殊参数
 NUM_CTX = int(os.environ.get("AI_EMOTION_NUM_CTX", "2048"))
-NUM_PREDICT = int(os.environ.get("AI_EMOTION_NUM_PREDICT", "15"))
+NUM_PREDICT = int(
+    os.environ.get("AI_EMOTION_NUM_PREDICT", "512")
+)  # 增加预测长度以支持JSON输出
 TOP_K = int(os.environ.get("AI_EMOTION_TOP_K", "20"))
 TOP_P = float(os.environ.get("AI_EMOTION_TOP_P", "0.8"))
 
@@ -28,6 +32,23 @@ PROMPT_TEMPLATE_PATH = os.environ.get(
 )
 with open(PROMPT_TEMPLATE_PATH, "r", encoding="utf-8") as f:
     EMOTION_PROMPT_TEMPLATE = f.read()
+
+
+class EmotionDimensions(BaseModel):
+    """Plutchik情感轮的八种基本情感维度"""
+
+    joy: float = Field(ge=0.0, le=1.0, description="喜悦情绪强度，范围0-1")
+    trust: float = Field(ge=0.0, le=1.0, description="信任情绪强度，范围0-1")
+    fear: float = Field(ge=0.0, le=1.0, description="恐惧情绪强度，范围0-1")
+    surprise: float = Field(ge=0.0, le=1.0, description="惊讶情绪强度，范围0-1")
+    sadness: float = Field(ge=0.0, le=1.0, description="悲伤情绪强度，范围0-1")
+    disgust: float = Field(ge=0.0, le=1.0, description="厌恶情绪强度，范围0-1")
+    anger: float = Field(ge=0.0, le=1.0, description="愤怒情绪强度，范围0-1")
+    anticipation: float = Field(ge=0.0, le=1.0, description="期待情绪强度，范围0-1")
+
+    @field_validator("*")
+    def check_values(cls, v):
+        return round(max(0.0, min(1.0, v)), 1)
 
 
 class QwenVoiceProcessor:
@@ -57,6 +78,9 @@ class QwenVoiceProcessor:
             "anticipation": "期待",
         }
 
+        # 创建输出解析器
+        self.output_parser = PydanticOutputParser(pydantic_object=EmotionDimensions)
+
         # 初始化针对Qwen2.5优化的LLM
         self.llm = ChatOllama(
             model=LLM_MODEL,
@@ -66,178 +90,85 @@ class QwenVoiceProcessor:
             top_k=TOP_K,
             top_p=TOP_P,
             repeat_penalty=1.1,  # 减少重复
-            stop=["输入：", "现在请分析", "\n\n"],  # 添加停止词
+            stop=["\n\n", "输入：", "现在请分析"],  # 停止词
+            format="json",  # 强制JSON格式输出
         )
 
-        self.prompt = ChatPromptTemplate.from_template(EMOTION_PROMPT_TEMPLATE)
-        self.emotion_chain = self.prompt | self.llm
+        # 构建包含格式指令的prompt
+        format_instructions = self.output_parser.get_format_instructions()
+        full_template = EMOTION_PROMPT_TEMPLATE.replace(
+            "请严格按照后续Langchain的PydanticOutputParser指定的格式输出8种情绪各自的强度值（0 - 1）。",
+            f"请严格按照以下格式输出：\n{format_instructions}",
+        )
 
-    def parse_emotion_output(self, output: str) -> str:
-        """解析LLM输出格式：emotion|1，针对固定强度值1优化"""
-        try:
-            # 清理输出，移除可能的额外内容
-            output = output.strip()
-            lines = output.split("\n")
+        self.prompt = ChatPromptTemplate.from_template(full_template)
+        self.emotion_chain = self.prompt | self.llm | self.output_parser
 
-            # 寻找包含 | 的行
-            for line in lines:
-                line = line.strip()
-                if "|" in line:
-                    # 使用正则表达式提取情绪，现在期望强度值为1
-                    pattern = r"(joy|trust|fear|surprise|sadness|disgust|anger|anticipation)\|1"
-                    match = re.search(pattern, line.lower())
+    def create_emotion_vector(self, emotions: EmotionDimensions) -> list:
+        """将EmotionDimensions对象转换为OSC向量"""
+        return [
+            emotions.joy,
+            emotions.trust,
+            emotions.fear,
+            emotions.surprise,
+            emotions.sadness,
+            emotions.disgust,
+            emotions.anger,
+            emotions.anticipation,
+        ]
 
-                    if match:
-                        emotion = match.group(1)
-                        return emotion
-
-            # 如果没有找到标准格式，尝试从输出中提取情绪词
-            output_lower = output.lower()
-
-            # 按优先级搜索情绪词，增加更多中文关键词匹配
-            emotion_keywords = {
-                "joy": [
-                    "joy",
-                    "喜悦",
-                    "开心",
-                    "高兴",
-                    "快乐",
-                    "愉快",
-                    "兴奋",
-                    "满足",
-                    "欣慰",
-                ],
-                "sadness": [
-                    "sadness",
-                    "悲伤",
-                    "难过",
-                    "失落",
-                    "沮丧",
-                    "痛苦",
-                    "忧伤",
-                    "哀伤",
-                    "遗憾",
-                ],
-                "anger": [
-                    "anger",
-                    "愤怒",
-                    "生气",
-                    "烦躁",
-                    "恼火",
-                    "不满",
-                    "愤恨",
-                    "暴怒",
-                ],
-                "fear": [
-                    "fear",
-                    "恐惧",
-                    "担心",
-                    "害怕",
-                    "焦虑",
-                    "紧张",
-                    "不安",
-                    "恐慌",
-                    "畏惧",
-                ],
-                "surprise": [
-                    "surprise",
-                    "惊讶",
-                    "意外",
-                    "震惊",
-                    "诧异",
-                    "惊奇",
-                    "吃惊",
-                    "惊愕",
-                ],
-                "disgust": [
-                    "disgust",
-                    "厌恶",
-                    "反感",
-                    "恶心",
-                    "讨厌",
-                    "嫌弃",
-                    "厌烦",
-                    "憎恶",
-                    "排斥",
-                ],
-                "trust": [
-                    "trust",
-                    "信任",
-                    "信赖",
-                    "相信",
-                    "依靠",
-                    "确信",
-                    "放心",
-                    "可靠",
-                    "信心",
-                ],
-                "anticipation": [
-                    "anticipation",
-                    "期待",
-                    "期望",
-                    "盼望",
-                    "渴望",
-                    "向往",
-                    "期盼",
-                    "憧憬",
-                    "预期",
-                ],
-            }
-
-            # 按照映射规则的优先级进行匹配
-            priority_order = [
-                "sadness",
-                "joy",
-                "fear",
-                "anger",
-                "disgust",
-                "anticipation",
-                "trust",
-                "surprise",
-            ]
-
-            for emotion in priority_order:
-                keywords = emotion_keywords[emotion]
-                for keyword in keywords:
-                    if keyword in output_lower:
-                        return emotion
-
-            return "joy"  # 最终默认返回
-
-        except Exception as e:
-            print(f"[警告] 解析情绪输出失败: {e}, 输出内容: {output}")
-            return "joy"
+    def get_dominant_emotion(self, emotions: EmotionDimensions) -> tuple[str, float]:
+        """获取主导情绪及其强度"""
+        emotion_dict = emotions.model_dump()
+        dominant_emotion = max(emotion_dict.items(), key=lambda x: x[1])
+        return dominant_emotion
 
     async def process_text(self, text: str) -> None:
-        """使用Qwen2.5处理文本并分析情绪"""
+        """使用Qwen2.5和结构化输出处理文本并分析情绪"""
         if not text.strip():
             return
 
         try:
-            # 情感分析
-            result = await self.emotion_chain.ainvoke({"text": text})
+            # 情感分析 - 使用结构化输出
+            emotions = await self.emotion_chain.ainvoke({"text": text})
 
-            # 解析结果，现在只返回情绪类型
-            emotion = self.parse_emotion_output(result.content)
-
-            # 创建情感向量 - 固定强度为1.0
-            emotion_vector = [0.0] * 8
-            emotion_index = self.emotion_mapping[emotion]
-            emotion_vector[emotion_index] = 1.0
+            # 创建情感向量
+            emotion_vector = self.create_emotion_vector(emotions)
 
             # 发送到TouchDesigner
             self.osc_client.send_message("/emotion", emotion_vector)
 
+            # 获取主导情绪
+            dominant_emotion, dominant_intensity = self.get_dominant_emotion(emotions)
+
             # 打印结果
-            print(f"\n[Qwen2.5情感分析]")
+            print(f"\n[Qwen2.5结构化情感分析]")
             print(f"识别文本: {text}")
-            print(f"主要情感: {self.emotion_names[emotion]} (强度: 1.0)")
+            print(
+                f"主要情感: {self.emotion_names[dominant_emotion]} (强度: {dominant_intensity})"
+            )
+            print(f"详细情感分析:")
+            for emotion, intensity in emotions.model_dump().items():
+                if intensity > 0:
+                    print(f"  {self.emotion_names[emotion]}: {intensity}")
             print(f"OSC数据: {emotion_vector}")
-            print(f"原始输出: {result.content}")
 
         except Exception as e:
             print(f"[错误] 处理文本时发生错误: {str(e)}")
-            # 发送默认值
-            default_vector = [0.0] * 8
-            default_vector[0] = 1.0  # 默认为joy，强度1.0
-            self.osc_client.send_message("/emotion", default_vector)
+            # 发送默认值 - 创建默认的EmotionDimensions对象
+            try:
+                default_emotions = EmotionDimensions(
+                    joy=0.5,
+                    trust=0.0,
+                    fear=0.0,
+                    surprise=0.0,
+                    sadness=0.0,
+                    disgust=0.0,
+                    anger=0.0,
+                    anticipation=0.0,
+                )
+                default_vector = self.create_emotion_vector(default_emotions)
+                self.osc_client.send_message("/emotion", default_vector)
+                print(f"[信息] 发送默认情感向量: {default_vector}")
+            except Exception as fallback_error:
+                print(f"[错误] 发送默认值时也发生错误: {fallback_error}")
