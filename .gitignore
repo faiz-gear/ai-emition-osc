@@ -11,3 +11,4 @@ client/out/
 client/.turbo/
 
 *.log
+.worktrees/
