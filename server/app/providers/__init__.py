@@ -1,13 +1,16 @@
 from .crypto import ProviderCrypto
 from .errors import (
+    ProviderAuthFailedError,
     ProviderActivationConflictError,
     ProviderActiveNotSetError,
     ProviderConflictError,
     ProviderError,
     ProviderNotFoundError,
+    ProviderRateLimitedError,
     ProviderRotationInProgressError,
     ProviderSecretDecryptError,
     ProviderTypeImmutableError,
+    ProviderUpstreamUnavailableError,
     ProviderValidationError,
 )
 from .registry import ProviderRegistry
@@ -26,4 +29,7 @@ __all__ = [
     "ProviderSecretDecryptError",
     "ProviderRotationInProgressError",
     "ProviderActivationConflictError",
+    "ProviderAuthFailedError",
+    "ProviderRateLimitedError",
+    "ProviderUpstreamUnavailableError",
 ]

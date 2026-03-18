@@ -1,11 +1,14 @@
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Optional
 
 from server.app.providers.base import CreateProviderInput, StoredProviderWrite
 from server.app.providers.crypto import ProviderCrypto
 from server.app.providers.errors import (
+    ProviderAuthFailedError,
     ProviderRotationInProgressError,
+    ProviderUpstreamUnavailableError,
     ProviderTypeImmutableError,
 )
 from server.app.providers.registry import ProviderRegistry
@@ -27,6 +30,33 @@ class ProviderServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self) -> None:
         self._tmp.cleanup()
+
+    class _FakeModel:
+        def __init__(self, exc: Optional[Exception] = None):
+            self._exc = exc
+
+        async def ainvoke(self, prompt: str):
+            if self._exc is not None:
+                raise self._exc
+            return {"ok": True}
+
+    class _FakeAdapter:
+        def __init__(self, model):
+            self.provider_type = "ollama"
+            self._model = model
+
+        def validate(self, config):
+            return None
+
+        def create_model(self, config):
+            return self._model
+
+    class _FakeRegistry:
+        def __init__(self, adapter):
+            self._adapter = adapter
+
+        def get(self, provider_type: str):
+            return self._adapter
 
     async def test_provider_type_is_immutable_on_patch(self):
         created = await self.service.create_provider(
@@ -87,6 +117,33 @@ class ProviderServiceTests(unittest.IsolatedAsyncioTestCase):
                     headers=None,
                 )
             )
+
+    async def test_test_provider_maps_auth_error(self):
+        class _Err(Exception):
+            status_code = 401
+
+        fake_service = ProviderService(
+            repository=self.repo,
+            registry=self._FakeRegistry(self._FakeAdapter(self._FakeModel(_Err()))),
+            crypto=ProviderCrypto("0123456789abcdef0123456789abcdef"),
+        )
+        active = await self.repo.get_active()
+        assert active is not None
+        with self.assertRaises(ProviderAuthFailedError):
+            await fake_service.test_provider(active.id)
+
+    async def test_test_provider_maps_upstream_error(self):
+        fake_service = ProviderService(
+            repository=self.repo,
+            registry=self._FakeRegistry(
+                self._FakeAdapter(self._FakeModel(RuntimeError("connection refused")))
+            ),
+            crypto=ProviderCrypto("0123456789abcdef0123456789abcdef"),
+        )
+        active = await self.repo.get_active()
+        assert active is not None
+        with self.assertRaises(ProviderUpstreamUnavailableError):
+            await fake_service.test_provider(active.id)
 
 
 if __name__ == "__main__":

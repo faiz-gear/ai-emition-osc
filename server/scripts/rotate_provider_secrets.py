@@ -46,16 +46,22 @@ async def rotate(db_path: str, old_key: str, new_key: str) -> int:
     await repo.set_rotation_lock(True)
     try:
         records = await repo.list()
+        updates: dict[str, tuple[str | None, str | None]] = {}
         for record in records:
-            patch: dict[str, object] = {}
+            new_api = record.api_key_encrypted
+            new_headers = record.headers_encrypted
             if record.api_key_encrypted:
                 decrypted = old_crypto.decrypt_text(record.api_key_encrypted)
-                patch["api_key_encrypted"] = new_crypto.encrypt_text(decrypted)
+                new_api = new_crypto.encrypt_text(decrypted)
             if record.headers_encrypted:
                 decrypted = old_crypto.decrypt_json(record.headers_encrypted)
-                patch["headers_encrypted"] = new_crypto.encrypt_json(decrypted)
-            if patch:
-                await repo.update(record.id, patch)
+                new_headers = new_crypto.encrypt_json(decrypted)
+            if (
+                new_api != record.api_key_encrypted
+                or new_headers != record.headers_encrypted
+            ):
+                updates[record.id] = (new_api, new_headers)
+        await repo.bulk_update_encrypted_fields(updates)
     finally:
         await repo.set_rotation_lock(False)
     return 0

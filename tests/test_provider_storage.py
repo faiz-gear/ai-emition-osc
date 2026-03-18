@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from server.app.providers.base import StoredProviderWrite
+from server.app.providers.crypto import ProviderCrypto
 from server.app.providers.storage import SqliteProviderRepository
 
 
@@ -97,6 +98,37 @@ class ProviderStorageTests(unittest.IsolatedAsyncioTestCase):
         all_rows = await self.repo.list()
         active_count = sum(1 for item in all_rows if item.is_active)
         self.assertEqual(active_count, 1)
+
+    async def test_bulk_update_secrets_is_atomic(self):
+        crypto = ProviderCrypto("0123456789abcdef0123456789abcdef")
+        created = await self.repo.create(
+            StoredProviderWrite(
+                name="rotate-target",
+                provider_type="openai",
+                provider_key=None,
+                model="gpt-4.1-mini",
+                base_url=None,
+                headers_encrypted=crypto.encrypt_json({"x-test": "1"}),
+                api_key_encrypted=crypto.encrypt_text("sk-old"),
+                temperature=0.2,
+                is_active=False,
+            )
+        )
+
+        before = await self.repo.get(created.id)
+        assert before is not None
+        with self.assertRaises(ValueError):
+            await self.repo.bulk_update_encrypted_fields(
+                {
+                    created.id: ("new-api", "new-headers"),
+                    "missing-id": ("bad", "bad"),
+                }
+            )
+
+        after = await self.repo.get(created.id)
+        assert after is not None
+        self.assertEqual(after.api_key_encrypted, before.api_key_encrypted)
+        self.assertEqual(after.headers_encrypted, before.headers_encrypted)
 
 
 if __name__ == "__main__":

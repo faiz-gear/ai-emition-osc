@@ -18,13 +18,16 @@ from .base import (
 )
 from .crypto import ProviderCrypto
 from .errors import (
+    ProviderAuthFailedError,
     ProviderActiveNotSetError,
     ProviderActivationConflictError,
     ProviderConflictError,
     ProviderNotFoundError,
+    ProviderRateLimitedError,
     ProviderRotationInProgressError,
     ProviderSecretDecryptError,
     ProviderTypeImmutableError,
+    ProviderUpstreamUnavailableError,
     ProviderValidationError,
 )
 from .registry import ProviderRegistry
@@ -112,15 +115,20 @@ class ProviderService:
             raise ProviderNotFoundError()
 
         current_api_key, current_headers = self._decrypt_secrets(existing)
+        if "name" in patch and patch.get("name") is None:
+            raise ProviderValidationError("name cannot be null")
+        if "model" in patch and patch.get("model") is None:
+            raise ProviderValidationError("model cannot be null")
+
         effective = CreateProviderInput(
-            name=patch.get("name", existing.name),
+            name=patch["name"] if "name" in patch else existing.name,
             provider_type=existing.provider_type,
             provider_key=(
                 patch["provider_key"]
                 if "provider_key" in patch
                 else existing.provider_key
             ),
-            model=patch.get("model", existing.model),
+            model=patch["model"] if "model" in patch else existing.model,
             base_url=patch.get("base_url", existing.base_url),
             temperature=patch.get("temperature", existing.temperature),
             api_key=patch.get("api_key", current_api_key),
@@ -181,7 +189,19 @@ class ProviderService:
         runtime = await self.get_runtime_config(provider_id)
         adapter = self._registry.get(runtime.provider_type)
         adapter.validate(runtime)
-        adapter.create_model(runtime)
+        model = adapter.create_model(runtime)
+        try:
+            await model.ainvoke(
+                "Respond with a short JSON object: {\"ok\": true}"
+            )
+        except Exception as exc:
+            status_code = getattr(exc, "status_code", None)
+            message = str(exc).lower()
+            if status_code in {401, 403} or "unauthorized" in message or "forbidden" in message:
+                raise ProviderAuthFailedError() from exc
+            if status_code == 429 or "rate limit" in message or "too many requests" in message:
+                raise ProviderRateLimitedError() from exc
+            raise ProviderUpstreamUnavailableError(str(exc)) from exc
         latency = (time.perf_counter() - started) * 1000.0
         return ProviderTestResult(ok=True, latency_ms=latency)
 

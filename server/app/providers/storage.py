@@ -364,3 +364,28 @@ class SqliteProviderRepository:
                 ("1" if enabled else "0",),
             )
             await db.commit()
+
+    async def bulk_update_encrypted_fields(
+        self, updates: dict[str, tuple[str | None, str | None]]
+    ) -> None:
+        if not updates:
+            return
+        now = _now_iso()
+        async with self._connect() as db:
+            await db.execute("BEGIN")
+            try:
+                for provider_id, (api_key_encrypted, headers_encrypted) in updates.items():
+                    cursor = await db.execute(
+                        """
+                        UPDATE provider_configs
+                        SET api_key_encrypted = ?, headers_encrypted = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (api_key_encrypted, headers_encrypted, now, provider_id),
+                    )
+                    if cursor.rowcount == 0:
+                        raise ValueError(f"Provider not found during bulk update: {provider_id}")
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise

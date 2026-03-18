@@ -3,21 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, Field
+from starlette.responses import JSONResponse
 
 from ..providers.base import CreateProviderInput
-from ..providers.errors import (
-    ProviderActivationConflictError,
-    ProviderActiveNotSetError,
-    ProviderConflictError,
-    ProviderError,
-    ProviderNotFoundError,
-    ProviderRotationInProgressError,
-    ProviderSecretDecryptError,
-    ProviderTypeImmutableError,
-    ProviderValidationError,
-)
+from ..providers.errors import ProviderError
 
 
 router = APIRouter()
@@ -79,32 +70,10 @@ def _summary_payload(summary: Any) -> dict[str, Any]:
     return payload
 
 
-def _raise_provider_http(exc: ProviderError) -> None:
-    status = 500
-    if isinstance(exc, ProviderNotFoundError):
-        status = 404
-    elif isinstance(exc, ProviderActiveNotSetError):
-        status = 404
-    elif isinstance(exc, ProviderValidationError):
-        status = 422
-    elif isinstance(exc, ProviderTypeImmutableError):
-        status = 409
-    elif isinstance(exc, ProviderConflictError):
-        status = 409
-    elif isinstance(exc, ProviderActivationConflictError):
-        status = 409
-    elif isinstance(exc, ProviderSecretDecryptError):
-        status = 500
-    elif isinstance(exc, ProviderRotationInProgressError):
-        status = 503
-
-    raise HTTPException(
-        status_code=status,
-        detail=ErrorResponse(
-            code=exc.code,
-            message=exc.user_message,
-            details={},
-        ).model_dump(),
+def _provider_error_response(exc: ProviderError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(code=exc.code, message=exc.user_message, details={}).model_dump(),
     )
 
 
@@ -118,7 +87,7 @@ async def list_providers(request: Request) -> list[dict[str, Any]]:
 @router.post("/api/providers", response_model=ProviderSummaryResponse, status_code=201)
 async def create_provider(
     request: Request, payload: CreateProviderRequest
-) -> dict[str, Any]:
+) -> JSONResponse | dict[str, Any]:
     service = request.app.state.provider_service
     try:
         summary = await service.create_provider(
@@ -134,14 +103,14 @@ async def create_provider(
             )
         )
     except ProviderError as exc:
-        _raise_provider_http(exc)
+        return _provider_error_response(exc)
     return _summary_payload(summary)
 
 
 @router.patch("/api/providers/{provider_id}", response_model=ProviderSummaryResponse)
 async def update_provider(
     provider_id: str, request: Request, payload: PatchProviderRequest
-) -> dict[str, Any]:
+) -> JSONResponse | dict[str, Any]:
     service = request.app.state.provider_service
     try:
         summary = await service.update_provider(
@@ -149,7 +118,7 @@ async def update_provider(
             payload.model_dump(exclude_unset=True),
         )
     except ProviderError as exc:
-        _raise_provider_http(exc)
+        return _provider_error_response(exc)
     return _summary_payload(summary)
 
 
@@ -159,7 +128,7 @@ async def delete_provider(provider_id: str, request: Request) -> Response:
     try:
         await service.delete_provider(provider_id)
     except ProviderError as exc:
-        _raise_provider_http(exc)
+        return _provider_error_response(exc)
     return Response(status_code=204)
 
 
@@ -171,7 +140,7 @@ async def activate_provider(provider_id: str, request: Request) -> dict[str, Any
     try:
         summary = await service.activate_provider(provider_id)
     except ProviderError as exc:
-        _raise_provider_http(exc)
+        return _provider_error_response(exc)
     return _summary_payload(summary)
 
 
@@ -181,7 +150,7 @@ async def test_provider(provider_id: str, request: Request) -> dict[str, Any]:
     try:
         result = await service.test_provider(provider_id)
     except ProviderError as exc:
-        _raise_provider_http(exc)
+        return _provider_error_response(exc)
     return asdict(result)
 
 
@@ -191,5 +160,5 @@ async def get_active_provider(request: Request) -> dict[str, Any]:
     try:
         summary = await service.get_active_summary()
     except ProviderError as exc:
-        _raise_provider_http(exc)
+        return _provider_error_response(exc)
     return _summary_payload(summary)

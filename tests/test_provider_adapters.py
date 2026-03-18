@@ -58,8 +58,25 @@ class ProviderAdapterTests(unittest.TestCase):
         )
         adapter.validate(cfg)
         model = adapter.create_model(cfg)
+        self.assertEqual(getattr(model, "base_url", None), "http://localhost:1234/v1")
+        self.assertEqual(getattr(model, "headers", None), {"x-app": "ai-emotion"})
+
+    def test_openai_compatible_with_api_key_uses_chat_openai(self):
+        from server.app.providers.adapters.openai_compatible import (
+            OpenAICompatibleAdapter,
+        )
+
+        adapter = OpenAICompatibleAdapter()
+        cfg = self._runtime(
+            provider_type="openai_compatible",
+            provider_key="my-compat",
+            model="custom-model",
+            base_url="http://localhost:1234/v1",
+            api_key="sk-test",
+            headers={"x-app": "ai-emotion"},
+        )
+        model = adapter.create_model(cfg)
         self.assertEqual(getattr(model, "openai_api_base", None), "http://localhost:1234/v1")
-        self.assertEqual(getattr(model, "default_headers", None), {"x-app": "ai-emotion"})
 
     def test_registry_returns_registered_adapter(self):
         from server.app.providers.registry import ProviderRegistry
