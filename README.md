@@ -70,7 +70,7 @@ npm run dev
 
 复制 `.env.example` 为 `.env` 并按需修改。重点变量：
 - `AI_EMOTION_VOSK_MODEL`：Vosk 模型目录（默认 `vosk-model-small-cn`）
-- `AI_EMOTION_LLM_MODEL`：Ollama 模型名（默认 `deepseek-r1:1.5b`）
+- `AI_EMOTION_LLM_MODEL`：Ollama 模型名（默认 `qwen2.5:3b`）
 - `AI_EMOTION_OSC_IP` / `AI_EMOTION_OSC_PORT`：OSC 目标地址
 - `AI_EMOTION_EVENT_BUFFER_SIZE`：内存保留最近 N 条（默认 200）
 
