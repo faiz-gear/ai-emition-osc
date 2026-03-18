@@ -41,7 +41,7 @@ class ProviderService:
         self._repo = repository
         self._registry = registry
         self._crypto = crypto
-        self._activate_lock = asyncio.Lock()
+        self._activate_lock: asyncio.Lock | None = None
 
     async def list_summaries(self) -> list[ProviderSummary]:
         records = await self._repo.list()
@@ -166,7 +166,7 @@ class ProviderService:
         adapter = self._registry.get(runtime.provider_type)
         adapter.validate(runtime)
 
-        async with self._activate_lock:
+        async with self._get_activate_lock():
             try:
                 updated = await self._repo.set_active(provider_id)
             except KeyError as exc:
@@ -271,6 +271,11 @@ class ProviderService:
         if checker is not None and callable(checker):
             if await checker():
                 raise ProviderRotationInProgressError()
+
+    def _get_activate_lock(self) -> asyncio.Lock:
+        if self._activate_lock is None:
+            self._activate_lock = asyncio.Lock()
+        return self._activate_lock
 
     def _normalize_and_validate_input(
         self, input: CreateProviderInput
