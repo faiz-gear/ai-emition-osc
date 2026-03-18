@@ -1,3 +1,13 @@
 __pycache__/
 vosk-model-small-cn/
 .DS_Store
+.env
+.venv/
+
+# Next.js
+client/node_modules/
+client/.next/
+client/out/
+client/.turbo/
+
+*.log
