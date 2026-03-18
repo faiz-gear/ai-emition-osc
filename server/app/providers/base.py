@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Protocol, TypedDict
 
+from langchain_core.language_models.chat_models import BaseChatModel
+
 
 ProviderType = Literal["ollama", "openai", "openai_compatible"]
 
@@ -64,3 +66,25 @@ class ProviderRepository(Protocol):
     async def set_active(self, provider_id: str) -> StoredProviderRecord: ...
 
     async def get_active(self) -> StoredProviderRecord | None: ...
+
+
+@dataclass(frozen=True)
+class ProviderRuntimeConfig:
+    id: str
+    name: str
+    provider_type: ProviderType
+    provider_key: str | None
+    model: str
+    base_url: str | None
+    headers: dict[str, str] | None
+    api_key: str | None
+    temperature: float | None
+    is_active: bool
+
+
+class ProviderAdapter(Protocol):
+    provider_type: ProviderType
+
+    def validate(self, config: ProviderRuntimeConfig) -> None: ...
+
+    def create_model(self, config: ProviderRuntimeConfig) -> BaseChatModel: ...
