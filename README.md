@@ -66,11 +66,23 @@ npm run dev
 - `GET /api/utterances?limit=200`：获取最近识别记录
 - `WS /ws/events`：事件流（连接后先推送 `snapshot`，随后增量推送）
 
+### Provider 管理 API
+
+- `GET /api/providers`：列出 provider（支持 degraded 标识）
+- `POST /api/providers`：创建 provider
+- `PATCH /api/providers/{id}`：更新 provider（`provider_type` 不可变）
+- `DELETE /api/providers/{id}`：删除 provider（允许删除 active）
+- `POST /api/providers/{id}/activate`：激活 provider
+- `POST /api/providers/{id}/test`：测试 provider 配置
+- `GET /api/providers/active`：获取当前 active provider（无 active 时返回 `PROVIDER_ACTIVE_NOT_SET`）
+
 ## 配置
 
 复制 `.env.example` 为 `.env` 并按需修改。重点变量：
 - `AI_EMOTION_VOSK_MODEL`：Vosk 模型目录（默认 `vosk-model-small-cn`）
 - `AI_EMOTION_LLM_MODEL`：Ollama 模型名（默认 `qwen2.5:3b`）
+- `AI_EMOTION_PROVIDER_DB_PATH`：provider SQLite 路径（默认 `server/data/providers.db`）
+- `AI_EMOTION_PROVIDER_SECRET_KEY`：provider secret 加密主密钥（必填；建议 32 字节随机串）
 - `AI_EMOTION_OSC_IP` / `AI_EMOTION_OSC_PORT`：OSC 目标地址
 - `AI_EMOTION_EVENT_BUFFER_SIZE`：内存保留最近 N 条（默认 200）
 
