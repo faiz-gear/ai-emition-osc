@@ -13,6 +13,7 @@ from .api.http import router as http_router
 from .api.ws import router as ws_router
 from .core.config import AppConfig, load_config
 from .services.asr_service import AsrService
+from .services.emotion_queue import EmotionTaskQueue, QUEUE_POLICY_LATEST
 from .services.emotion_service import EmotionService
 from .services.hub import Hub
 from .services.osc_service import OscService
@@ -31,31 +32,52 @@ async def _metrics_loop(app: FastAPI) -> None:
 
 async def _emotion_worker(app: FastAPI) -> None:
     hub = app.state.hub
-    queue: asyncio.Queue[tuple[str, str]] = app.state.emotion_queue
+    queue: EmotionTaskQueue = app.state.emotion_queue
     emotion_service: EmotionService = app.state.emotion_service
     osc_service: OscService = app.state.osc_service
 
     try:
         while True:
-            utterance_id, text = await queue.get()
+            task = await queue.get()
+            await hub.set_emotion_queue_depth(queue.qsize())
             try:
-                await hub.record_emotion_start(utterance_id=utterance_id)
+                if queue.policy == QUEUE_POLICY_LATEST and not await queue.is_latest_generation(
+                    task.generation
+                ):
+                    await hub.record_emotion_dropped(
+                        utterance_id=task.utterance_id,
+                        reason="stale_before_start",
+                    )
+                    continue
+
+                await hub.record_emotion_start(utterance_id=task.utterance_id)
                 start = time.perf_counter()
-                emotion = await emotion_service.analyze_text(text)
+                emotion = await emotion_service.analyze_text(task.text)
                 latency_ms = (time.perf_counter() - start) * 1000.0
+
+                if queue.policy == QUEUE_POLICY_LATEST and not await queue.is_latest_generation(
+                    task.generation
+                ):
+                    await hub.record_emotion_dropped(
+                        utterance_id=task.utterance_id,
+                        reason="stale_after_processing",
+                    )
+                    continue
 
                 osc_service.send_emotion(emotion.dimensions)
                 await hub.record_emotion_result(
-                    utterance_id=utterance_id,
+                    utterance_id=task.utterance_id,
                     emotion=emotion,
                     latency_ms=latency_ms,
                 )
             except Exception as exc:
                 await hub.record_error(
-                    message=f"情绪分析失败: {exc}", utterance_id=utterance_id
+                    message=f"情绪分析失败: {exc}",
+                    utterance_id=task.utterance_id,
                 )
             finally:
                 queue.task_done()
+                await hub.set_emotion_queue_depth(queue.qsize())
     except asyncio.CancelledError:
         raise
 
@@ -66,7 +88,10 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         hub = Hub(config)
-        emotion_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+        emotion_queue = EmotionTaskQueue(
+            policy=config.emotion_queue_policy,
+            maxsize=config.emotion_queue_maxsize,
+        )
         emotion_service = EmotionService.from_config(config)
         osc_service = OscService(config)
 
@@ -85,7 +110,13 @@ def create_app() -> FastAPI:
                 ended_at=ended_at,
                 final_text=final_text,
             )
-            await emotion_queue.put((utterance_id, final_text))
+            _, dropped_tasks = await emotion_queue.enqueue(utterance_id, final_text)
+            for dropped in dropped_tasks:
+                await hub.record_emotion_dropped(
+                    utterance_id=dropped.utterance_id,
+                    reason="queue_replaced",
+                )
+            await hub.set_emotion_queue_depth(emotion_queue.qsize())
 
         async def on_error(message: str):
             await hub.record_error(message=message)
@@ -103,6 +134,7 @@ def create_app() -> FastAPI:
         app.state.emotion_service = emotion_service
         app.state.osc_service = osc_service
         app.state.asr_service = asr_service
+        await hub.set_emotion_queue_depth(emotion_queue.qsize())
 
         emotion_task = asyncio.create_task(_emotion_worker(app))
         metrics_task = asyncio.create_task(_metrics_loop(app))
@@ -134,4 +166,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

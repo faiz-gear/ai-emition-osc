@@ -12,6 +12,7 @@ import type {
   AsrFinalEvent,
   AsrPartialEvent,
   EmotionResult,
+  EmotionDroppedEvent,
   EmotionResultEvent,
   EmotionStartEvent,
   ErrorEvent,
@@ -38,6 +39,7 @@ type Action =
   | { type: "ASR_FINAL"; payload: AsrFinalEvent }
   | { type: "EMOTION_START"; payload: EmotionStartEvent }
   | { type: "EMOTION_RESULT"; payload: EmotionResultEvent }
+  | { type: "EMOTION_DROPPED"; payload: EmotionDroppedEvent }
   | { type: "ERROR"; payload: ErrorEvent };
 
 const initialState: DashboardState = {
@@ -132,6 +134,13 @@ function reducer(state: DashboardState, action: Action): DashboardState {
       });
       return { ...state, utterances };
     }
+    case "EMOTION_DROPPED": {
+      const utterances = upsertUtterance(state.utterances, {
+        id: action.payload.utterance_id,
+        emotion_status: "dropped"
+      });
+      return { ...state, utterances };
+    }
     case "ERROR":
       return { ...state, lastError: action.payload.message };
     default:
@@ -159,6 +168,11 @@ function parseEvent(event: EventEnvelope, dispatch: (action: Action) => void) {
     return dispatch({
       type: "EMOTION_RESULT",
       payload: event.data as EmotionResultEvent
+    });
+  if (event.type === "emotion_dropped")
+    return dispatch({
+      type: "EMOTION_DROPPED",
+      payload: event.data as EmotionDroppedEvent
     });
   if (event.type === "error")
     return dispatch({ type: "ERROR", payload: event.data as ErrorEvent });

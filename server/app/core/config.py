@@ -56,9 +56,15 @@ class AppConfig:
     osc_port: int
 
     metrics_push_interval_seconds: float
+    emotion_queue_policy: str
+    emotion_queue_maxsize: int
 
 
 def load_config() -> AppConfig:
+    queue_policy = _get_env_str("AI_EMOTION_QUEUE_POLICY", "latest").lower()
+    if queue_policy not in {"latest", "fifo"}:
+        queue_policy = "latest"
+
     return AppConfig(
         server_host=_get_env_str("AI_EMOTION_SERVER_HOST", "127.0.0.1"),
         server_port=_get_env_int("AI_EMOTION_SERVER_PORT", 8000),
@@ -81,6 +87,9 @@ def load_config() -> AppConfig:
         ),
         osc_ip=_get_env_str("AI_EMOTION_OSC_IP", "127.0.0.1"),
         osc_port=_get_env_int("AI_EMOTION_OSC_PORT", 7000),
-        metrics_push_interval_seconds=_get_env_float("AI_EMOTION_METRICS_INTERVAL", 1.0),
+        metrics_push_interval_seconds=_get_env_float(
+            "AI_EMOTION_METRICS_INTERVAL", 1.0
+        ),
+        emotion_queue_policy=queue_policy,
+        emotion_queue_maxsize=max(1, _get_env_int("AI_EMOTION_QUEUE_MAXSIZE", 1)),
     )
-

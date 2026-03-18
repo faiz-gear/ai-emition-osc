@@ -15,7 +15,7 @@ export type EmotionResult = {
   brief_explanation: string;
 };
 
-export type EmotionStatus = "queued" | "processing" | "done" | "error";
+export type EmotionStatus = "queued" | "processing" | "done" | "dropped" | "error";
 
 export type Utterance = {
   id: string;
@@ -33,6 +33,9 @@ export type Metrics = {
   ws_clients: number;
   utterances_total: number;
   emotion_total: number;
+  emotion_dropped_total?: number;
+  emotion_stale_total?: number;
+  emotion_queue_depth?: number;
   errors_total: number;
   avg_emotion_latency_ms?: number | null;
 };
@@ -46,6 +49,8 @@ export type StatusResponse = {
     llm_model: string;
     osc_target: string;
     event_buffer_size: number;
+    emotion_queue_policy?: string;
+    emotion_queue_maxsize?: number;
   };
   last_error?: string | null;
 };
@@ -62,6 +67,7 @@ export type EventType =
   | "asr_final"
   | "emotion_start"
   | "emotion_result"
+  | "emotion_dropped"
   | "metrics"
   | "error";
 
@@ -94,5 +100,9 @@ export type EmotionResultEvent = {
   latency_ms: number;
 };
 
-export type ErrorEvent = { message: string; utterance_id?: string | null };
+export type EmotionDroppedEvent = {
+  utterance_id: string;
+  reason: string;
+};
 
+export type ErrorEvent = { message: string; utterance_id?: string | null };

@@ -49,6 +49,9 @@ class Hub:
 
         self._utterances_total = 0
         self._emotion_total = 0
+        self._emotion_dropped_total = 0
+        self._emotion_stale_total = 0
+        self._emotion_queue_depth = 0
         self._errors_total = 0
         self._emotion_latencies_ms: deque[float] = deque(maxlen=50)
 
@@ -134,6 +137,10 @@ class Hub:
         async with self._state_lock:
             self._listening = listening
 
+    async def set_emotion_queue_depth(self, depth: int) -> None:
+        async with self._state_lock:
+            self._emotion_queue_depth = max(0, depth)
+
     async def last_error(self) -> Optional[str]:
         async with self._state_lock:
             return self._last_error
@@ -144,6 +151,9 @@ class Hub:
             last_error = self._last_error
             utterances_total = self._utterances_total
             emotion_total = self._emotion_total
+            emotion_dropped_total = self._emotion_dropped_total
+            emotion_stale_total = self._emotion_stale_total
+            emotion_queue_depth = self._emotion_queue_depth
             errors_total = self._errors_total
             latencies = list(self._emotion_latencies_ms)
 
@@ -155,6 +165,9 @@ class Hub:
             ws_clients=ws_clients,
             utterances_total=utterances_total,
             emotion_total=emotion_total,
+            emotion_dropped_total=emotion_dropped_total,
+            emotion_stale_total=emotion_stale_total,
+            emotion_queue_depth=emotion_queue_depth,
             errors_total=errors_total,
             avg_emotion_latency_ms=avg_latency,
         )
@@ -164,6 +177,8 @@ class Hub:
             llm_model=self._config.llm_model,
             osc_target=f"{self._config.osc_ip}:{self._config.osc_port}",
             event_buffer_size=self._config.event_buffer_size,
+            emotion_queue_policy=self._config.emotion_queue_policy,
+            emotion_queue_maxsize=self._config.emotion_queue_maxsize,
         )
         return StatusResponse(
             status=Status(listening=listening),
@@ -323,6 +338,26 @@ class Hub:
                     "utterance_id": utterance_id,
                     "emotion": emotion,
                     "latency_ms": latency_ms,
+                },
+            )
+        )
+
+    async def record_emotion_dropped(self, *, utterance_id: str, reason: str) -> None:
+        async with self._state_lock:
+            utterance = self._utterances.get(utterance_id)
+            if utterance is not None:
+                utterance.emotion_status = EmotionStatus.dropped
+
+            self._emotion_dropped_total += 1
+            if reason.startswith("stale_"):
+                self._emotion_stale_total += 1
+
+        await self.broadcast(
+            self._new_event(
+                "emotion_dropped",
+                {
+                    "utterance_id": utterance_id,
+                    "reason": reason,
                 },
             )
         )

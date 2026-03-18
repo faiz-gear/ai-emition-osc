@@ -17,6 +17,18 @@ export function MetricsCards({ metrics }: { metrics: Metrics | null }) {
       value: metrics ? String(metrics.utterances_total) : "-"
     },
     { label: "Emotion", value: metrics ? String(metrics.emotion_total) : "-" },
+    {
+      label: "Dropped",
+      value: metrics ? String(metrics.emotion_dropped_total ?? 0) : "-"
+    },
+    {
+      label: "Stale",
+      value: metrics ? String(metrics.emotion_stale_total ?? 0) : "-"
+    },
+    {
+      label: "Queue Depth",
+      value: metrics ? String(metrics.emotion_queue_depth ?? 0) : "-"
+    },
     { label: "Errors", value: metrics ? String(metrics.errors_total) : "-" },
     {
       label: "Avg Latency (ms)",
@@ -25,7 +37,7 @@ export function MetricsCards({ metrics }: { metrics: Metrics | null }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
       {items.map((item) => (
         <div
           key={item.label}
@@ -40,4 +52,3 @@ export function MetricsCards({ metrics }: { metrics: Metrics | null }) {
     </div>
   );
 }
-

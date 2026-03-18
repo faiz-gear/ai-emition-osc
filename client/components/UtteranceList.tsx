@@ -5,6 +5,7 @@ import type { EmotionStatus, Utterance } from "@/lib/types";
 function statusColor(status: EmotionStatus) {
   if (status === "done") return "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30";
   if (status === "processing") return "bg-amber-500/15 text-amber-300 ring-amber-500/30";
+  if (status === "dropped") return "bg-fuchsia-500/15 text-fuchsia-300 ring-fuchsia-500/30";
   if (status === "error") return "bg-rose-500/15 text-rose-300 ring-rose-500/30";
   return "bg-slate-500/10 text-slate-300 ring-slate-500/25";
 }

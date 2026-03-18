@@ -11,6 +11,7 @@ class EmotionStatus(str, Enum):
     queued = "queued"
     processing = "processing"
     done = "done"
+    dropped = "dropped"
     error = "error"
 
 
@@ -47,6 +48,9 @@ class Metrics(BaseModel):
     ws_clients: int
     utterances_total: int
     emotion_total: int
+    emotion_dropped_total: int = 0
+    emotion_stale_total: int = 0
+    emotion_queue_depth: int = 0
     errors_total: int
     avg_emotion_latency_ms: Optional[float] = None
 
@@ -61,6 +65,8 @@ class ConfigSummary(BaseModel):
     llm_model: str
     osc_target: str
     event_buffer_size: int
+    emotion_queue_policy: str
+    emotion_queue_maxsize: int
 
 
 class StatusResponse(BaseModel):
@@ -77,6 +83,7 @@ EventType = Literal[
     "asr_final",
     "emotion_start",
     "emotion_result",
+    "emotion_dropped",
     "metrics",
     "error",
 ]
@@ -92,4 +99,3 @@ class EventEnvelope(BaseModel):
 class SnapshotPayload(BaseModel):
     status: StatusResponse
     utterances: list[Utterance]
-
