@@ -7,7 +7,7 @@ import uuid
 from collections import OrderedDict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from fastapi import WebSocket
 
@@ -34,8 +34,14 @@ class WsConnection:
 
 
 class Hub:
-    def __init__(self, config: AppConfig):
+    def __init__(
+        self,
+        config: AppConfig,
+        provider_status_reader: Callable[[], Awaitable[tuple[str | None, str | None]]]
+        | None = None,
+    ):
         self._config = config
+        self._provider_status_reader = provider_status_reader
 
         self._connections: dict[int, WsConnection] = {}
         self._connections_lock = asyncio.Lock()
@@ -159,6 +165,14 @@ class Hub:
 
         ws_clients = await self.ws_clients()
         avg_latency = sum(latencies) / len(latencies) if latencies else None
+        active_provider: str | None = None
+        active_model: str | None = None
+        if self._provider_status_reader is not None:
+            try:
+                active_provider, active_model = await self._provider_status_reader()
+            except Exception:
+                active_provider = None
+                active_model = None
 
         metrics = Metrics(
             uptime_seconds=self._uptime_seconds(),
@@ -175,6 +189,8 @@ class Hub:
             vosk_model_path=self._config.vosk_model_path,
             sample_rate=self._config.sample_rate,
             llm_model=self._config.llm_model,
+            active_provider=active_provider,
+            active_model=active_model,
             osc_target=f"{self._config.osc_ip}:{self._config.osc_port}",
             event_buffer_size=self._config.event_buffer_size,
             emotion_queue_policy=self._config.emotion_queue_policy,

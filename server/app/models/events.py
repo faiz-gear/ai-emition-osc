@@ -63,6 +63,8 @@ class ConfigSummary(BaseModel):
     vosk_model_path: str
     sample_rate: int
     llm_model: str
+    active_provider: Optional[str] = None
+    active_model: Optional[str] = None
     osc_target: str
     event_buffer_size: int
     emotion_queue_policy: str
