@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { EmotionRadar } from "@/components/EmotionRadar";
 import { MetricsCards } from "@/components/MetricsCards";
+import { ProviderManager } from "@/components/ProviderManager";
 import { UtteranceList } from "@/components/UtteranceList";
 import { API_BASE, WS_URL } from "@/lib/config";
 import { useEventStream } from "@/lib/useEventStream";
@@ -289,6 +290,11 @@ export default function DashboardPage() {
       ) : null}
 
       <MetricsCards metrics={state.metrics} />
+
+      <ProviderManager
+        apiBase={API_BASE}
+        activeProviderId={state.status?.config.active_provider ?? null}
+      />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <section className="space-y-3">

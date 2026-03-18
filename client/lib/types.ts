@@ -47,6 +47,8 @@ export type StatusResponse = {
     vosk_model_path: string;
     sample_rate: number;
     llm_model: string;
+    active_provider?: string | null;
+    active_model?: string | null;
     osc_target: string;
     event_buffer_size: number;
     emotion_queue_policy?: string;
@@ -106,3 +108,46 @@ export type EmotionDroppedEvent = {
 };
 
 export type ErrorEvent = { message: string; utterance_id?: string | null };
+
+export type ProviderType = "ollama" | "openai" | "openai_compatible";
+
+export type ProviderSummary = {
+  id: string;
+  name: string;
+  provider_type: ProviderType;
+  provider_key?: string | null;
+  model: string;
+  base_url?: string | null;
+  temperature?: number | null;
+  is_active: boolean;
+  updated_at: string;
+  has_api_key?: boolean | null;
+  headers_keys?: string[] | null;
+  status: "ok" | "degraded";
+  error_code?: string | null;
+  error_message?: string | null;
+};
+
+export type ProviderTestResult = {
+  ok: boolean;
+  latency_ms: number;
+};
+
+export type ProviderErrorResponse = {
+  code: string;
+  message: string;
+  details: Record<string, unknown>;
+};
+
+export type CreateProviderRequest = {
+  name: string;
+  provider_type: ProviderType;
+  provider_key?: string | null;
+  model: string;
+  base_url?: string | null;
+  temperature?: number | null;
+  api_key?: string | null;
+  headers?: Record<string, string> | null;
+};
+
+export type PatchProviderRequest = Partial<CreateProviderRequest>;
