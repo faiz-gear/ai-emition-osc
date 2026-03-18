@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from langchain_ollama import ChatOllama
+from pydantic import BaseModel, Field
 
 from ..core.config import AppConfig
 from ..models.events import EmotionDimensions, EmotionResult
+from ..providers.service import ProviderService
 
 
 EMOTION_KEYS = [
@@ -22,6 +23,23 @@ EMOTION_KEYS = [
     "anger",
     "anticipation",
 ]
+
+
+class EmotionDimensionsSchema(BaseModel):
+    joy: float = Field(default=0.0)
+    trust: float = Field(default=0.0)
+    fear: float = Field(default=0.0)
+    surprise: float = Field(default=0.0)
+    sadness: float = Field(default=0.0)
+    disgust: float = Field(default=0.0)
+    anger: float = Field(default=0.0)
+    anticipation: float = Field(default=0.0)
+
+
+class EmotionResultSchema(BaseModel):
+    dimensions: EmotionDimensionsSchema = Field(default_factory=EmotionDimensionsSchema)
+    dominant_emotion: str = Field(default="neutral")
+    brief_explanation: str = Field(default="")
 
 
 def _clamp_0_1(value: float) -> float:
@@ -93,7 +111,7 @@ def _normalize_emotion_payload(payload: dict[str, Any]) -> EmotionResult:
 
 @dataclass(frozen=True)
 class EmotionService:
-    llm: ChatOllama
+    provider_service: ProviderService
     prompt_template: str
 
     @staticmethod
@@ -104,24 +122,33 @@ class EmotionService:
         return path.read_text(encoding="utf-8")
 
     @classmethod
-    def from_config(cls, config: AppConfig) -> "EmotionService":
-        llm = ChatOllama(model=config.llm_model, temperature=config.llm_temperature)
+    def from_config(cls, config: AppConfig, provider_service: ProviderService) -> "EmotionService":
         template = cls._load_prompt_template(config.prompt_template_path)
-        return cls(llm=llm, prompt_template=template)
+        return cls(provider_service=provider_service, prompt_template=template)
 
     async def analyze_text(self, text: str) -> EmotionResult:
+        model = await self.provider_service.get_active_chat_model()
         prompt = (
             self.prompt_template.replace("{{USER_TEXT}}", text)
             .replace("{input_text}", text)
             .replace("<用户输入文本>", text)
         )
 
-        response = await self.llm.ainvoke(prompt)
-        content = getattr(response, "content", str(response))
+        try:
+            structured_model = model.with_structured_output(EmotionResultSchema)
+            structured = await structured_model.ainvoke(prompt)
+            if isinstance(structured, EmotionResultSchema):
+                return _normalize_emotion_payload(structured.model_dump())
+            if isinstance(structured, dict):
+                return _normalize_emotion_payload(structured)
+        except Exception:
+            # Fallback to JSON extraction from raw model output.
+            pass
 
+        response = await model.ainvoke(prompt)
+        content = getattr(response, "content", str(response))
         payload = _extract_first_json_object(content)
         if payload is None:
             raise ValueError("LLM 输出中未找到可解析的 JSON")
 
         return _normalize_emotion_payload(payload)
-
