@@ -8,6 +8,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 
 ProviderType = Literal["ollama", "openai", "openai_compatible"]
+ProviderStatus = Literal["ok", "degraded"]
 
 
 @dataclass(frozen=True)
@@ -88,3 +89,50 @@ class ProviderAdapter(Protocol):
     def validate(self, config: ProviderRuntimeConfig) -> None: ...
 
     def create_model(self, config: ProviderRuntimeConfig) -> BaseChatModel: ...
+
+
+@dataclass(frozen=True)
+class CreateProviderInput:
+    name: str
+    provider_type: ProviderType
+    provider_key: str | None
+    model: str
+    base_url: str | None
+    temperature: float | None
+    api_key: str | None
+    headers: dict[str, str] | None
+
+
+class UpdateProviderInput(TypedDict, total=False):
+    name: str
+    provider_type: ProviderType
+    provider_key: str | None
+    model: str
+    base_url: str | None
+    temperature: float | None
+    api_key: str | None
+    headers: dict[str, str] | None
+
+
+@dataclass(frozen=True)
+class ProviderSummary:
+    id: str
+    name: str
+    provider_type: ProviderType
+    provider_key: str | None
+    model: str
+    base_url: str | None
+    temperature: float | None
+    is_active: bool
+    updated_at: datetime
+    has_api_key: bool | None
+    headers_keys: list[str] | None
+    status: ProviderStatus
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class ProviderTestResult:
+    ok: bool
+    latency_ms: float
