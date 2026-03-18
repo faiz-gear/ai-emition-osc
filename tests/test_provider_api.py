@@ -70,6 +70,38 @@ class ProviderApiTests(unittest.TestCase):
             "PROVIDER_ACTIVE_NOT_SET",
         )
 
+    def test_create_activate_status_and_delete_provider_flow(self):
+        created = self.client.post(
+            "/api/providers",
+            json={
+                "name": "workflow-openai",
+                "provider_type": "openai",
+                "model": "gpt-4o-mini",
+                "api_key": "sk-test",
+            },
+        )
+        self.assertEqual(created.status_code, 201)
+        provider_id = created.json()["id"]
+
+        activated = self.client.post(f"/api/providers/{provider_id}/activate")
+        self.assertEqual(activated.status_code, 200)
+        self.assertTrue(activated.json()["is_active"])
+
+        listed = self.client.get("/api/providers")
+        self.assertEqual(listed.status_code, 200)
+        active_count = sum(1 for item in listed.json() if item["is_active"])
+        self.assertEqual(active_count, 1)
+
+        deleted = self.client.delete(f"/api/providers/{provider_id}")
+        self.assertEqual(deleted.status_code, 204)
+
+        active_after = self.client.get("/api/providers/active")
+        self.assertEqual(active_after.status_code, 404)
+        self.assertEqual(
+            active_after.json()["detail"]["code"],
+            "PROVIDER_ACTIVE_NOT_SET",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
