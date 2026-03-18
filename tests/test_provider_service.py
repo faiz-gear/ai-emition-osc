@@ -4,7 +4,10 @@ from pathlib import Path
 
 from server.app.providers.base import CreateProviderInput, StoredProviderWrite
 from server.app.providers.crypto import ProviderCrypto
-from server.app.providers.errors import ProviderTypeImmutableError
+from server.app.providers.errors import (
+    ProviderRotationInProgressError,
+    ProviderTypeImmutableError,
+)
 from server.app.providers.registry import ProviderRegistry
 from server.app.providers.service import ProviderService
 from server.app.providers.storage import SqliteProviderRepository
@@ -68,6 +71,22 @@ class ProviderServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(target.error_code, "PROVIDER_SECRET_DECRYPT_FAILED")
         self.assertIsNone(target.has_api_key)
         self.assertIsNone(target.headers_keys)
+
+    async def test_mutating_operations_block_when_rotation_lock_enabled(self):
+        await self.repo.set_rotation_lock(True)
+        with self.assertRaises(ProviderRotationInProgressError):
+            await self.service.create_provider(
+                CreateProviderInput(
+                    name="openai-main",
+                    provider_type="openai",
+                    provider_key=None,
+                    model="gpt-4o-mini",
+                    base_url=None,
+                    temperature=0.4,
+                    api_key="sk-test",
+                    headers=None,
+                )
+            )
 
 
 if __name__ == "__main__":
