@@ -8,7 +8,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ChatMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from ..base import ProviderRuntimeConfig
+from ..base import ProviderRuntimeConfig, ProviderType
 
 
 class OpenAICompatibleNoAuthChatModel(BaseChatModel):
@@ -61,7 +61,7 @@ class OpenAICompatibleNoAuthChatModel(BaseChatModel):
 
 
 class OpenAICompatibleAdapter:
-    provider_type = "openai_compatible"
+    provider_type: ProviderType = "openai_compatible"
 
     def validate(self, config: ProviderRuntimeConfig) -> None:
         if config.provider_key is None or config.provider_key.strip() == "":

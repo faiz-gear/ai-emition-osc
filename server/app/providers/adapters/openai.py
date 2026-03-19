@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from langchain_openai import ChatOpenAI
 
-from ..base import ProviderRuntimeConfig
+from ..base import ProviderRuntimeConfig, ProviderType
 
 
 class OpenAIAdapter:
-    provider_type = "openai"
+    provider_type: ProviderType = "openai"
 
     def validate(self, config: ProviderRuntimeConfig) -> None:
         if config.model.strip() == "":
