@@ -2,13 +2,87 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-muted: #fbfbfc;
+  --border: #e6e8eb;
+  --text-primary: #111318;
+  --text-secondary: #5f6470;
+  --accent: #5e6ad2;
+  --success: #1f9d55;
+  --warning: #b7791f;
+  --danger: #c53030;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+}
+
 html,
 body {
   height: 100%;
 }
 
 body {
-  background: #020617;
-  color: #e2e8f0;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family:
+    var(--font-ui), "SF Pro Text", "Segoe UI", "Helvetica Neue", sans-serif;
 }
 
+code,
+.mono {
+  font-family: var(--font-mono), "SF Mono", "Menlo", "Consolas", monospace;
+}
+
+.transcript-shimmer {
+  background: linear-gradient(
+    110deg,
+    var(--text-primary) 0%,
+    var(--text-primary) 42%,
+    #6b7280 50%,
+    var(--text-primary) 58%,
+    var(--text-primary) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: transcriptSweep 2s linear infinite;
+}
+
+.dashboard-enter {
+  animation: dashboardFadeIn 220ms ease-out both;
+}
+
+@keyframes transcriptSweep {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -20% 0;
+  }
+}
+
+@keyframes dashboardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transcript-shimmer,
+  .dashboard-enter {
+    animation: none;
+  }
+}
