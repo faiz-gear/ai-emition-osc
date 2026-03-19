@@ -58,8 +58,12 @@ export function upsertUtterance(
       {
         id: patch.id,
         started_at: patch.started_at ?? "1970-01-01T00:00:00.000Z",
+        ended_at: patch.ended_at ?? null,
+        partial_text: patch.partial_text ?? null,
+        final_text: patch.final_text ?? null,
+        emotion: patch.emotion ?? null,
         emotion_status: patch.emotion_status ?? "queued",
-        ...patch,
+        latency_ms: patch.latency_ms ?? null,
       },
       ...list,
     ];
