@@ -47,7 +47,7 @@ Contains:
 - Connection state
 - Listening state
 - Compact last-error slot
-- Optional mode/status chips
+- Only currently implemented status chips (no new chip types in this scope)
 
 Purpose:
 - Keep mission-critical controls visible at all times.
@@ -73,7 +73,7 @@ Contains compact cards:
 Purpose:
 - Keep operational health adjacent to primary workflow.
 
-### 4.4 Bottom-left `UtteranceStream`
+### 4.4 Bottom-left `UtteranceStreamPanel`
 Contains:
 - Reverse-chronological utterance list
 - Status token per utterance (`queued`, `processing`, `done`, `dropped`, `error`)
@@ -82,7 +82,7 @@ Contains:
 Purpose:
 - Fast historical drill-down while preserving realtime context.
 
-### 4.5 Bottom-right `EmotionDetail`
+### 4.5 Bottom-right `EmotionDetailPanel`
 Contains:
 - Existing radar visualization
 - Dominant emotion
@@ -120,8 +120,10 @@ Usage rules:
 - Accent colors reserved for interaction and state, not decoration.
 
 ## 5.2 Typography
-- Primary UI font: modern clean sans (non-default stack; implementation to use web font)
-- Numeric/time font: monospace for precision-oriented scanning
+- Primary UI font: `Manrope` (weights 500/600/700), loaded with `next/font/google` at layout level.
+- Sans fallback stack: `"Manrope", "SF Pro Text", "Segoe UI", "Helvetica Neue", sans-serif`
+- Numeric/time font: `JetBrains Mono` for precision-oriented scanning.
+- Mono fallback stack: `"JetBrains Mono", "SF Mono", "Menlo", "Consolas", monospace`
 - Compact scale:
   - Labels: 11-12px
   - Body: 13-14px
@@ -143,6 +145,11 @@ Usage rules:
 - `Start` is primary emphasis.
 - `Stop` is secondary.
 - Controls remain visible while scrolling.
+- Failure behavior:
+  - If Start/Stop request fails, keep current listening state unchanged.
+  - Surface failure message in ControlRail error slot immediately.
+  - Re-enable buttons after request settles so user can retry manually.
+  - Request timeout: cancel after `10s` via `AbortController`; treat as failure and show timeout message.
 
 ### 6.2 Live Transcript Behavior
 - When processing/partial text exists, apply shimmer sweep effect.
@@ -151,6 +158,10 @@ Usage rules:
   - Moderate speed (around 1.8-2.2s loop)
   - High readability preserved (no low-contrast flicker)
 - When final text lands, remove shimmer and render stable text.
+- Freshness label rule (based on `Date.now() - lastPartialOrFinalUpdateMs`):
+  - `LIVE` when delta `< 2000ms`
+  - `IDLE` when delta `2000-8000ms`
+  - `STALE` when delta `> 8000ms`
 
 ### 6.3 Follow-Latest Toggle
 - Add "Follow latest utterance" toggle, default ON.
@@ -160,17 +171,32 @@ Usage rules:
 ### 6.4 Provider Panel Behavior
 - Default collapsed as `Advanced`.
 - Expansion state persisted locally (`localStorage`).
+- Next.js client safety:
+  - Access `localStorage` only after client mount (`useEffect`).
+  - Wrap read/write in `try/catch`; fallback to default collapsed on failure.
+  - Persistence key: `ai-emotion::dashboard::provider-panel-open::v1`
 
 ### 6.5 Error Display
 - Compact last-error surface in ControlRail.
 - Dismiss action clears UI presentation only (no backend mutation).
+- Lifecycle:
+  - `new_error` means either:
+    - an incoming `error` event was received, or
+    - a local control request failed (`Start`/`Stop` timeout or non-2xx).
+  - `new_error` always re-shows the slot even if previously dismissed.
+  - `dismiss` hides current message in memory only for current page session.
+  - `reconnect` does not auto-clear existing visible message.
+  - `refresh` resets dismissal state and shows latest server-provided error.
 
 ## 7. Component Boundaries and Responsibilities
 
 All boundaries are UI-only and consume existing data contracts.
 
+- `DashboardPageContainer`
+  - Single owner of business/application state for reducer + derived view-model + cross-region callbacks.
 - `DashboardShell`
-  - Layout orchestration and responsive grid regions.
+  - Stateless layout component composed by `DashboardPageContainer`.
+  - Owns only visual region composition and responsive grid regions.
 - `ControlRail`
   - Top controls, connection/listening badges, last-error slot.
 - `LiveTranscriptStage`
@@ -185,8 +211,50 @@ All boundaries are UI-only and consume existing data contracts.
   - Collapsible wrapper around existing provider management UI.
 
 Boundary rule:
-- Data derivation stays in page container/state layer.
+- Data derivation and business state stay in `DashboardPageContainer`.
+- Region components can own local UI-only state (open/close, scroll anchor, local sheet visibility) but not business state.
 - Presentational components receive shaped props and remain stateless where possible.
+
+### 7.1 Interface/Ownership Contract
+
+| Component | Inputs | Emits/Callbacks | Owns Local State | Test Responsibility |
+|---|---|---|---|---|
+| `DashboardPageContainer` | WS event stream, API responses | `onStart`, `onStop`, `onSelectUtterance`, `onToggleFollow`, `onDismissError` | `selectedId`, `followLatest`, `isProviderPanelOpen`, `dismissedErrorKey`, `errorVersion` | Reducer transitions, derived selection logic, ownership rules |
+| `ControlRail` | connection/listening status, visible error text | `onStart`, `onStop`, `onDismissError` | `isErrorSheetOpen` (mobile only) | Control disabled/enabled states, error slot, mobile sheet behavior |
+| `LiveTranscriptStage` | `currentPartial`, `lastUpdateAt`, `isProcessing` | none | none | Shimmer class toggle and timestamp freshness label |
+| `RealtimeOpsStack` | formatted metrics | none | none | Token and value rendering stability |
+| `UtteranceStreamPanel` | utterance list, `selectedId`, `followLatest` | `onSelect`, `onToggleFollow` | local scroll anchoring only | Selection and follow toggle behavior |
+| `EmotionDetailPanel` | selected utterance + emotion | none | none | Empty/selected rendering branches |
+| `ProviderAdvancedPanel` | provider data + open flag | `onToggleOpen` and provider actions passthrough | none | Collapse/expand and persistence integration |
+
+Relationship contract:
+- `DashboardPageContainer` -> computes all view-model props -> passes into `DashboardShell`.
+- `DashboardShell` -> places regions (`ControlRail`, `LiveTranscriptStage`, `RealtimeOpsStack`, `UtteranceStreamPanel`, `EmotionDetailPanel`, `ProviderAdvancedPanel`) without owning business state.
+
+### 7.2 Data Contract Mapping (Ops + Status)
+
+| UI Item | Source Field | Transform | Unit | Empty/Fallback |
+|---|---|---|---|---|
+| Latency | `metrics.avg_emotion_latency_ms` | `Math.round(value)` | `ms` | `-` |
+| Queue Depth | `metrics.emotion_queue_depth` | integer display | `count` | `0` |
+| Throughput (Utterances) | `metrics.utterances_total` | integer display | `count` | `0` |
+| Throughput (Emotion) | `metrics.emotion_total` | integer display | `count` | `0` |
+| Errors | `metrics.errors_total` | integer display | `count` | `0` |
+| WS Clients | `metrics.ws_clients` | integer display | `count` | `0` |
+| Uptime | `metrics.uptime_seconds` | round to integer | `sec` | `-` |
+| Connection Chip | `connectionState` | enum mapping | `Connected/Connecting/Disconnected` | `Disconnected` |
+| Listening Chip | `viewModel.listening` (derived from `status?.status.listening ?? false`) | boolean mapping | `Listening/Stopped` | `Stopped` |
+
+### 7.3 Provider Action Callback Contract
+
+| Callback | Params | Returns | Loading/Error Ownership |
+|---|---|---|---|
+| `onRefreshProviders` | none | `Promise<void>` | `ProviderAdvancedPanel` shows local loading and inline error text |
+| `onActivateProvider` | `{ id: string }` | `Promise<void>` | `ProviderAdvancedPanel` owns per-row busy state and error surface |
+| `onTestProvider` | `{ id: string }` | `Promise<void>` | `ProviderAdvancedPanel` owns per-row busy state and result/info message |
+| `onDeleteProvider` | `{ id: string }` | `Promise<void>` | `ProviderAdvancedPanel` owns per-row busy state and error surface |
+| `onCreateProvider` | `{ payload: CreateProviderRequest }` | `Promise<void>` | `ProviderAdvancedPanel` owns submit loading and form error surface |
+| `onUpdateProvider` | `{ id: string; payload: PatchProviderRequest }` | `Promise<void>` | `ProviderAdvancedPanel` owns submit loading and form error surface |
 
 ## 8. Data Flow
 
@@ -194,11 +262,49 @@ Existing event flow is retained:
 - WebSocket events -> reducer -> derived selected utterance/emotion -> UI regions
 - API commands for start/stop/provider actions remain unchanged
 
-Enhancements:
-- Add local UI state for:
-  - Follow-latest toggle
-  - Provider panel expanded state
-  - Dismissed error visibility
+Enhancements and ownership mapping:
+- `selectedId`:
+  - Owner: `DashboardPageContainer`
+  - Rule: defaults to newest utterance id when `followLatest = true`.
+- `followLatest`:
+  - Owner: `DashboardPageContainer`
+  - Rule: default `true`; set `false` on manual row selection.
+- `isProviderPanelOpen`:
+  - Owner: `DashboardPageContainer` with localStorage persistence.
+- `dismissedErrorKey`:
+  - Owner: `DashboardPageContainer`
+  - Rule: computed from latest error payload signature; cleared when signature changes.
+- `errorVersion`:
+  - Owner: `DashboardPageContainer`
+  - Rule: increments on each `new_error` transition regardless of message text.
+
+Error signature formula:
+- Current contract uses `error.message` only, so:
+  - `errorSignature = [(errorMessage || "").trim() || "unknown-error", errorVersion].join("|")`
+  - Empty message fallback: `"unknown-error"`
+
+Persistence execution rule:
+- Read persisted values after mount only.
+- On read/write exception (private mode/quota), continue with in-memory state and no crash.
+- Applies to provider panel open-state only.
+- Error dismiss state is intentionally not persisted across refreshes.
+
+Error source matrix (`new_error` trigger):
+- WS `error` event with `message` -> increment `errorVersion`, show slot.
+- `status`/`snapshot` payload with `last_error` changed -> increment `errorVersion`, show slot.
+- Local Start/Stop failure (network timeout/non-2xx) -> increment `errorVersion`, show slot.
+
+Selection sync rules:
+- If selected utterance no longer exists:
+  - when `followLatest = true`, fallback to newest item.
+  - when `followLatest = false`, set selected utterance to `null` and keep user in manual mode.
+- If list is empty, selected utterance becomes `null` and detail panel shows empty state.
+
+Deterministic sorting rule:
+- Primary: `started_at` descending (valid timestamp first)
+- Secondary: `ended_at` descending
+- Tertiary: `id` descending lexical
+- Missing/invalid timestamps are treated as lowest priority and sorted last.
 
 No backend schema or endpoint changes are required.
 
@@ -209,19 +315,51 @@ No backend schema or endpoint changes are required.
 - Partial text stale: live timestamp helps detect stale flow.
 - Provider panel errors: keep existing inline error style, aligned to new token set.
 - Extremely long transcript lines: clamp with expandable overflow behavior.
+- Transcript overflow contract:
+  - default clamp: 2 lines in list rows, 3 lines in live transcript stage.
+  - show `Expand` action when overflow is detected.
+  - expanded content is per-item local UI state; `Collapse` restores clamp.
+- Out-of-order WS updates: list ordering always derived from `started_at` descending on render.
+- Selected utterance removed/replaced by snapshot: fallback to newest utterance or null.
+- Rapid Start/Stop toggles: buttons remain mutually disabled while pending request is in flight.
+- Start/Stop response race rule:
+  - `DashboardPageContainer` assigns increasing `commandSeq` per Start/Stop request.
+  - responses with stale `commandSeq` are ignored and cannot overwrite newer listening state.
+- Duplicate partial events: latest text replaces prior partial for same utterance id.
 - Mobile narrow widths: stack to single column with ControlRail still first.
+- Start/Stop network stall: timeout at 10s, surface error, and unlock controls for retry.
 
 ## 10. Responsive Strategy
 
-- Desktop: 2-column command console layout (hero + ops + stream/detail split)
-- Tablet: shrink dense cards and reduce side-by-side width ratios
-- Mobile: linearized sections in priority order:
-  1. ControlRail
-  2. LiveTranscriptStage
-  3. RealtimeOpsStack
-  4. UtteranceStream
-  5. EmotionDetail
-  6. ProviderAdvancedPanel
+Breakpoints:
+- `mobile`: `< 768px`
+- `tablet`: `768px - 1279px`
+- `desktop`: `>= 1280px`
+
+Layout rules by region:
+- `ControlRail`:
+  - mobile/tablet/desktop: sticky top, full width.
+  - mobile compaction rule: maintain single row with priority order:
+    1) Start/Stop
+    2) connection chip
+    3) listening chip
+    4) error indicator icon
+  - low-priority text (full error message) moves to tap-to-expand sheet on mobile.
+  - ownership: sheet open/close state is owned by `ControlRail` local UI state.
+- `LiveTranscriptStage`:
+  - mobile: full width block under ControlRail.
+  - tablet/desktop: main-left priority area.
+- `RealtimeOpsStack`:
+  - mobile: 2-column dense cards under transcript.
+  - tablet: 3-column dense cards.
+  - desktop: right-side stack with 2-column internal card grid.
+  - desktop sizing rule at `1280x800`: max region height `260px`, no vertical scrollbar, 6 core metrics visible as 3x2 grid.
+- `UtteranceStreamPanel` + `EmotionDetailPanel`:
+  - mobile: stream first, detail second.
+  - tablet: stacked.
+  - desktop: two-column split.
+- `ProviderAdvancedPanel`:
+  - all breakpoints: last region, collapsed by default.
 
 ## 11. Testing Strategy
 
@@ -230,28 +368,42 @@ No backend schema or endpoint changes are required.
 - Follow-latest toggle transitions.
 - Provider panel collapse state persistence.
 - Live transcript effect class toggling based on processing state.
+- Freshness label transition checks at `<2s`, `2-8s`, `>8s`.
+- Error lifecycle transitions (`new_error`, `dismiss`, `refresh`).
+- Error source matrix checks (`error` event, `status.last_error` change, local request failure).
+- Selection fallback when selected item disappears.
+- Start/Stop stale-response ignoring by `commandSeq`.
 
 ### Integration/UI
 - Start/Stop actions update badges and button states correctly.
+- Start/Stop failure shows error slot, keeps prior listening state, and allows retry.
 - Selecting utterance updates emotion detail panel.
 - Last-error dismiss affects UI only.
+- Out-of-order event arrivals still render correct sorted order.
+- Repeated identical error messages still reappear on new error event due to `errorVersion` increment.
+- Transcript overflow expand/collapse behavior works for both mouse and keyboard activation.
 - Dense layout remains readable under realistic data volume.
+- Breakpoint layout checks at 375px, 768px, 1024px, 1280px.
 
 ### Manual Visual QA
 - Verify Linear-like light tone consistency across sections.
 - Verify compact spacing and typography hierarchy.
 - Verify shimmer effect readability and non-distracting motion.
 - Verify mobile usability for all critical controls.
+- Verify mobile error sheet opens/closes correctly and does not break sticky rail.
+- Verify shimmer respects `prefers-reduced-motion` by disabling sweep animation.
 
 ## 12. Acceptance Criteria
 
-- Hero area is clearly Start/Stop + live transcript.
-- Theme is Linear-like light (not dark, not blue-heavy).
-- High-density layout is scannable and stable.
-- Processing transcript uses shimmer sweep effect.
-- Provider Manager is default-collapsed into Advanced.
-- Key health states are discoverable within one second.
-- Page works on desktop and mobile breakpoints.
+- Hero area has Start/Stop and live transcript visible above fold at `1280x800`.
+- Theme tokens use light background (`--bg` near `#f7f7f8`) and neutral border palette; no dark page background is present.
+- Realtime ops stack shows at least 6 core metrics without scrolling on `1280x800`.
+- Processing transcript applies shimmer class only while partial/processing text is active.
+- Transcript freshness badge follows `<2s` LIVE, `2-8s` IDLE, `>8s` STALE thresholds.
+- Provider Manager renders collapsed by default on first load and restores prior user expansion state after reload.
+- ControlRail stays sticky and single-row at 375px/768px/1280px widths; at 375px it uses compact priority mode with overflowed error details behind tap-to-expand.
+- Layout passes visual checks at 375px, 768px, and 1280px widths without clipped primary controls.
+- Start/Stop requests timeout at 10s and always return controls to interactive state.
 
 ## 13. Out of Scope (Explicit)
 
@@ -259,4 +411,4 @@ No backend schema or endpoint changes are required.
 - Provider-domain feature expansion
 - New analytics/reporting modules
 - Multi-page IA overhaul
-
+- New status-chip types beyond currently available backend states
