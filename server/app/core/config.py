@@ -51,6 +51,8 @@ class AppConfig:
     llm_model: str
     llm_temperature: float
     prompt_template_path: Path
+    provider_db_path: str
+    provider_secret_key: str
 
     osc_ip: str
     osc_port: int
@@ -85,6 +87,10 @@ def load_config() -> AppConfig:
         prompt_template_path=Path(
             _get_env_str("AI_EMOTION_PROMPT_TEMPLATE", "prompt_template.txt")
         ),
+        provider_db_path=_get_env_str(
+            "AI_EMOTION_PROVIDER_DB_PATH", "server/data/providers.db"
+        ),
+        provider_secret_key=_get_env_str("AI_EMOTION_PROVIDER_SECRET_KEY", ""),
         osc_ip=_get_env_str("AI_EMOTION_OSC_IP", "127.0.0.1"),
         osc_port=_get_env_int("AI_EMOTION_OSC_PORT", 7000),
         metrics_push_interval_seconds=_get_env_float(

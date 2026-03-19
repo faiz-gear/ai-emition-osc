@@ -3,9 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from ..models.events import StatusResponse, Utterance
+from .providers import router as providers_router
 
 
 router = APIRouter()
+router.include_router(providers_router)
 
 
 @router.get("/healthz")
@@ -55,4 +57,3 @@ async def stop_listening(request: Request) -> StatusResponse:
 async def get_utterances(request: Request, limit: int = 200) -> list[Utterance]:
     hub = request.app.state.hub
     return await hub.get_utterances(limit=limit)
-

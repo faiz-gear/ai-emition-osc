@@ -23,6 +23,8 @@ def _config() -> AppConfig:
         llm_model="qwen2.5:3b",
         llm_temperature=0.6,
         prompt_template_path=Path("prompt_template.txt"),
+        provider_db_path="server/data/providers.db",
+        provider_secret_key="test-secret",
         osc_ip="127.0.0.1",
         osc_port=7000,
         metrics_push_interval_seconds=1.0,
@@ -51,6 +53,8 @@ class HubDroppedTests(unittest.IsolatedAsyncioTestCase):
 
         status = await hub.get_status_response()
         self.assertEqual(status.metrics.emotion_dropped_total, 1)
+        self.assertIsNone(status.config.active_provider)
+        self.assertIsNone(status.config.active_model)
 
 
 if __name__ == "__main__":

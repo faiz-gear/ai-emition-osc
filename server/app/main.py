@@ -12,6 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.http import router as http_router
 from .api.ws import router as ws_router
 from .core.config import AppConfig, load_config
+from .providers.crypto import ProviderCrypto
+from .providers.errors import ProviderActiveNotSetError
+from .providers.registry import ProviderRegistry
+from .providers.service import ProviderService
+from .providers.storage import SqliteProviderRepository
 from .services.asr_service import AsrService
 from .services.emotion_queue import EmotionTaskQueue, QUEUE_POLICY_LATEST
 from .services.emotion_service import EmotionService
@@ -71,10 +76,16 @@ async def _emotion_worker(app: FastAPI) -> None:
                     latency_ms=latency_ms,
                 )
             except Exception as exc:
-                await hub.record_error(
-                    message=f"情绪分析失败: {exc}",
-                    utterance_id=task.utterance_id,
-                )
+                if isinstance(exc, ProviderActiveNotSetError):
+                    await hub.record_error(
+                        message="未配置可用 provider",
+                        utterance_id=task.utterance_id,
+                    )
+                else:
+                    await hub.record_error(
+                        message=f"情绪分析失败: {exc}",
+                        utterance_id=task.utterance_id,
+                    )
             finally:
                 queue.task_done()
                 await hub.set_emotion_queue_depth(queue.qsize())
@@ -84,15 +95,32 @@ async def _emotion_worker(app: FastAPI) -> None:
 
 def create_app() -> FastAPI:
     config = load_config()
+    if config.provider_secret_key.strip() == "":
+        raise RuntimeError("AI_EMOTION_PROVIDER_SECRET_KEY is required")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        hub = Hub(config)
+        provider_repo = SqliteProviderRepository(config.provider_db_path)
+        await provider_repo.initialize(default_model=config.llm_model)
+        provider_service = ProviderService(
+            repository=provider_repo,
+            registry=ProviderRegistry.default(),
+            crypto=ProviderCrypto(config.provider_secret_key),
+        )
+
+        async def provider_status_reader() -> tuple[str | None, str | None]:
+            try:
+                active = await provider_service.get_active_summary()
+                return active.provider_type, active.model
+            except Exception:
+                return None, None
+
+        hub = Hub(config, provider_status_reader=provider_status_reader)
         emotion_queue = EmotionTaskQueue(
             policy=config.emotion_queue_policy,
             maxsize=config.emotion_queue_maxsize,
         )
-        emotion_service = EmotionService.from_config(config)
+        emotion_service = EmotionService.from_config(config, provider_service)
         osc_service = OscService(config)
 
         async def on_partial(utterance_id, started_at, partial_text, audio_level):
@@ -133,6 +161,7 @@ def create_app() -> FastAPI:
         app.state.emotion_queue = emotion_queue
         app.state.emotion_service = emotion_service
         app.state.osc_service = osc_service
+        app.state.provider_service = provider_service
         app.state.asr_service = asr_service
         await hub.set_emotion_queue_depth(emotion_queue.qsize())
 
