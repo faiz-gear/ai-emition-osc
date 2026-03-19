@@ -57,6 +57,24 @@ NEXT_PUBLIC_WS_URL=ws://127.0.0.1:8000/ws/events \
 npm run dev
 ```
 
+### 前端控制台（Linear Light Dense）
+
+`/client` 已升级为轻色高密度实时调试台，核心区域包括：
+- `ControlRail`：顶部粘性 Start/Stop、连接状态、Listening 状态、错误入口
+- `LiveTranscriptStage`：实时字幕主舞台，处理中 shimmer 效果 + LIVE/IDLE/STALE 新鲜度
+- `RealtimeOpsStack`：紧凑运维指标卡
+- `UtteranceStreamPanel`：按时间倒序列表、Follow latest 开关、长文本 Expand/Collapse
+- `EmotionDetailPanel`：选中 utterance 的情绪详情 + 雷达图
+- `ProviderAdvancedPanel`：默认折叠的高级 Provider 管理，展开状态本地持久化
+
+前端质量门禁（本地）：
+```bash
+cd client
+npm run lint
+npm run test:unit
+npm run build
+```
+
 ## 后端 API
 
 - `GET /healthz`：健康检查

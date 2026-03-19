@@ -412,3 +412,24 @@ Layout rules by region:
 - New analytics/reporting modules
 - Multi-page IA overhaul
 - New status-chip types beyond currently available backend states
+
+## 14. Implementation Notes (2026-03-19)
+
+- Delivered component split:
+  - `DashboardShell`, `ControlRail`, `LiveTranscriptStage`, `RealtimeOpsStack`,
+    `UtteranceStreamPanel`, `EmotionDetailPanel`, `ProviderAdvancedPanel`
+- Delivered state utilities:
+  - `utterance-utils.ts`, `error-state.ts`, `command-control.ts`, `types.ts`
+- Delivered frontend test harness:
+  - Vitest + React Testing Library (`npm run test:unit`)
+- Implemented behavior highlights:
+  - Follow-latest selection fallback logic
+  - Start/Stop timeout + stale command response guard
+  - Error lifecycle with dismiss/re-show by signature versioning
+  - Provider panel open-state localStorage persistence key:
+    `ai-emotion::dashboard::provider-panel-open::v1`
+- Automated verification at implementation completion:
+  - `npm run lint` PASS
+  - `npm run test:unit` PASS
+  - `npm run build` PASS
+- Manual responsive visual verification at `375/768/1280` remains a runtime QA step and should be executed in a browser session.
