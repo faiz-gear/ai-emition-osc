@@ -5,6 +5,59 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def _parse_dotenv_line(line: str) -> tuple[str, str] | None:
+    stripped = line.strip()
+    if stripped == "" or stripped.startswith("#"):
+        return None
+    if stripped.startswith("export "):
+        stripped = stripped[len("export ") :].strip()
+    if "=" not in stripped:
+        return None
+
+    key, value = stripped.split("=", 1)
+    key = key.strip()
+    if key == "":
+        return None
+
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    return key, value
+
+
+def _find_dotenv_path() -> Path | None:
+    # Prefer the .env found from current working dir upward, then fall back to repo defaults.
+    current = Path.cwd().resolve()
+    search_roots = [current, Path(__file__).resolve().parents[3], Path(__file__).resolve().parents[2]]
+    seen: set[Path] = set()
+    for root in search_roots:
+        probe = root
+        while True:
+            if probe in seen:
+                break
+            seen.add(probe)
+            candidate = probe / ".env"
+            if candidate.is_file():
+                return candidate
+            if probe.parent == probe:
+                break
+            probe = probe.parent
+    return None
+
+
+def _load_dotenv() -> None:
+    dotenv_path = _find_dotenv_path()
+    if dotenv_path is None:
+        return
+
+    for line in dotenv_path.read_text(encoding="utf-8").splitlines():
+        parsed = _parse_dotenv_line(line)
+        if parsed is None:
+            continue
+        key, value = parsed
+        os.environ.setdefault(key, value)
+
+
 def _get_env_str(name: str, default: str) -> str:
     value = os.environ.get(name)
     return default if value is None or value.strip() == "" else value
@@ -63,6 +116,8 @@ class AppConfig:
 
 
 def load_config() -> AppConfig:
+    _load_dotenv()
+
     queue_policy = _get_env_str("AI_EMOTION_QUEUE_POLICY", "latest").lower()
     if queue_policy not in {"latest", "fifo"}:
         queue_policy = "latest"

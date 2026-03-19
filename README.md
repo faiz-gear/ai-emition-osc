@@ -78,7 +78,7 @@ npm run dev
 
 ## 配置
 
-复制 `.env.example` 为 `.env` 并按需修改。重点变量：
+复制 `.env.example` 为 `.env` 并按需修改。后端启动时会自动读取 `.env`（若系统环境变量已存在同名键，则系统环境变量优先）。重点变量：
 - `AI_EMOTION_VOSK_MODEL`：Vosk 模型目录（默认 `vosk-model-small-cn`）
 - `AI_EMOTION_LLM_MODEL`：Ollama 模型名（默认 `qwen2.5:3b`）
 - `AI_EMOTION_PROVIDER_DB_PATH`：provider SQLite 路径（默认 `server/data/providers.db`）
