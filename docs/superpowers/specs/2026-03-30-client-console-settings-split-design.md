@@ -110,17 +110,23 @@ Recommended section components:
 - `AppShell`
   - Inputs: `activeTab: "console" | "settings"`, `children`
   - Behavior: renders localized tab labels from i18n keys; tab clicks navigate by route.
+- `SettingsLanguageSection`
+  - Inputs: `locale`
+  - Callbacks: `onChangeLocale(next: Locale): void`
+  - Ownership boundary: locale persistence remains in i18n layer (`DashboardI18nProvider` + `LOCALE_STORAGE_KEY`); this section is presentational/interaction only.
 - `SettingsEndpointSection`
   - Inputs: `value: RuntimeConfig`, `isSaving`, `errorMessage`, `warningCode`, `dismissedWarningCodes`
-  - Callbacks: `onSave(next: RuntimeConfigInput): Promise<RuntimeConfigActionResult>`, `onReset(): Promise<RuntimeConfigActionResult>`
+  - Callbacks: `onSave(next: RuntimeConfigInput): Promise<RuntimeConfigActionResult>`, `onReset(): Promise<RuntimeConfigActionResult>`, `onDismissWarning(code: RuntimeWarningCode): void`
   - Note: this section does not emit extra output events; it only invokes callbacks and renders returned outcome.
 - `SettingsProviderSection`
-  - Inputs: `apiBase`, `apiBaseRevision`
+  - Inputs: `apiBase`, `apiBaseRevision`, `isEndpointMutating`
   - Behavior: renders `ProviderManager` with `key={apiBaseRevision}` to force clean remount when endpoint changes.
+  - Behavior: while `isEndpointMutating = true`, provider section is interaction-locked (`fieldset disabled` or equivalent wrapper lock).
 - `SettingsPage` orchestration
   - Owns current runtime config state and distributes `apiBase` to provider section.
+  - Owns endpoint mutation state: `idle | saving | resetting`.
   - Applies atomic endpoint updates so language/provider blocks observe the same committed config snapshot.
-  - Owns `apiBaseRevision` token and increments it after every successful save/reset.
+  - Owns `apiBaseRevision` token and increments it only when `apiBase` value changes after successful save/reset.
   - Does not own provider active state; active provider source-of-truth stays inside `ProviderManager` data flow (`GET /api/providers` / activation response).
 
 ## 6. Runtime Config Data Model (Frontend-Only)
@@ -168,9 +174,17 @@ type RuntimeConfigLoadResult = {
     | "invalid_env_default";
 };
 
+type RuntimeWarningCode =
+  | "storage_unavailable"
+  | "invalid_json"
+  | "invalid_shape"
+  | "version_mismatch"
+  | "invalid_env_default";
+
 type RuntimeConfigActionResult = {
   ok: boolean;
   config: RuntimeConfig;
+  warningCode?: RuntimeWarningCode;
   errorCode?: "storage_write_failed" | "validation_failed";
   errors?: RuntimeConfigValidationError[];
 };
@@ -183,7 +197,11 @@ Deterministic degraded behavior (required):
 - If persisted `version` mismatches, ignore persisted value, load env defaults, and set `warningCode = "version_mismatch"`.
 - If env defaults are missing/invalid, fall back to hardcoded safe defaults (`http://127.0.0.1:8000`, `ws://127.0.0.1:8000/ws/events`) and set `warningCode = "invalid_env_default"`.
 - Save operation returns a typed error for storage failure; UI surfaces non-blocking feedback and keeps in-memory form values.
+- Save/reset operations may also return `warningCode` when fallback/default correction occurred during mutation.
 - All loaded configs (from storage/env/hardcoded) must pass the same URL scheme validation; invalid values are never returned as effective runtime config.
+- `RuntimeConfigActionResult.config` is always the effective config after action resolution.
+- On `ok = false`, `config` must equal previous effective config and `SettingsPage` must not increment `apiBaseRevision`.
+- On `ok = true`, `SettingsPage` updates effective config and increments `apiBaseRevision` only if `apiBase` changed.
 
 ## 7. Interaction and Data Flow
 
@@ -205,15 +223,17 @@ Actions:
 - Reset default: clear override and revert to env defaults.
 - Save/Reset success immediately updates Settings page runtime config state.
 - Provider section receives updated `apiBase` in the same render commit.
+- Mutation single-flight rule: while state is `saving` or `resetting`, both Save and Reset actions are disabled and new mutation requests are ignored.
 
 Validation rules:
 - `API_BASE` must start with `http://` or `https://`
 - `WS_URL` must start with `ws://` or `wss://`
 
 Provider rebinding timing contract:
-- On endpoint save/reset, `SettingsProviderSection` remounts with new `apiBase` before any new provider action can fire.
-- `SettingsPage` increments `apiBaseRevision` on successful save/reset, and `SettingsProviderSection` remounts `ProviderManager` using `key={apiBaseRevision}`.
+- During endpoint save/reset mutation, `SettingsPage` sets `isEndpointMutating = true`; provider section remains locked and rejects interactions.
+- `SettingsPage` increments `apiBaseRevision` only when `apiBase` changed after successful save/reset; `SettingsProviderSection` remounts `ProviderManager` using `key={apiBaseRevision}`.
 - Provider actions do not require additional cross-component load-ready handshake; `ProviderManager` keeps owning its internal busy/disabled states.
+- After mutation settles (success or failure), `isEndpointMutating` returns to `false` and provider interactions resume.
 - Existing in-flight provider request responses from prior revision are dropped because they target an unmounted `ProviderManager` instance and are not allowed to update current revision UI state.
 
 ### 7.3 Console Runtime Binding
@@ -224,6 +244,7 @@ Console route reads runtime config on mount and uses it for:
 
 After endpoint edits, next navigation to Console uses latest saved values.
 If Console is already mounted during endpoint changes elsewhere, it does not hot-rebind in place; new endpoints apply on the next Console mount (route re-entry or page reload).
+Console warning strategy: runtime-config `warningCode` is not surfaced in Console UI; Console consumes resolved effective config only.
 
 ### 7.4 Provider Management
 
@@ -243,8 +264,10 @@ Provider behavior remains full-featured:
 - Runtime config load warnings (`storage_unavailable`, `invalid_json`, `invalid_shape`, `version_mismatch`, `invalid_env_default`) are all surfaced with the same informational banner style.
 - "One-time informational banner" means: once per page session per warning code (dedupe by `sessionStorage` key), not once per mount.
 - Warning banner visibility contract:
-  - `warningCode` comes from `loadRuntimeConfig()` result.
-  - `dismissedWarningCodes` is session-scoped state owned by `SettingsPage`.
+  - `warningCode` comes from `loadRuntimeConfig()` or mutation (`RuntimeConfigActionResult.warningCode`).
+  - `dismissedWarningCodes` is authoritative React state owned by `SettingsPage`.
+  - `SettingsPage` hydrates this state once on mount from `sessionStorage` key `ai-emotion::runtime-warning-dismissed::v1`, and writes back on every dismissal change.
+  - If `sessionStorage` is unavailable or read/write fails, fallback to in-memory-only dedupe for current mount and do not throw.
   - `SettingsEndpointSection` renders banner only when `warningCode` exists and is not dismissed in session state.
 - Console connection/control failures: continue using existing ControlRail error surface.
 - Provider API failures: continue using existing `ProviderManager` error rendering.
@@ -266,19 +289,26 @@ Provider behavior remains full-featured:
 
 - Navigation tabs render and active state by route.
 - Settings page sections render (language/endpoint/provider).
+- Language section triggers `onChangeLocale` and reflects current locale selection.
 - Endpoint save persists and rehydrates on revisit.
 - Console tests updated to assert no config controls are rendered there.
 - Endpoint save/reset triggers provider section rebind with latest `apiBase`.
+- `apiBaseRevision` increments only when `apiBase` changes; changing only `wsUrl` must not remount provider section.
 - Storage write failure shows non-blocking inline error in endpoint section.
 - Invalid persisted payload falls back to default config and displays warning banner.
+- Warning banner dedupe persists for current page session via `sessionStorage` hydration/writeback.
+- Warning dismiss interaction triggers `onDismissWarning` and suppresses same-code banner for current page session.
 - Stale provider responses from prior `apiBaseRevision` do not mutate current section UI.
+- While endpoint mutation state is `saving`/`resetting`, Save and Reset controls stay disabled and overlapping requests are ignored.
 
 ### 9.3 Integration
 
 - End-to-end route behavior:
   - edit endpoints in `/settings` and save
   - verify `ProviderManager` uses new `apiBase`
-  - navigate to `/` and verify console uses the same new endpoints
+  - navigate to `/` and verify console uses the same new endpoints on mount
+  - keep `/` mounted while changing endpoints in `/settings`, then verify no in-place hot-rebind until next mount
+  - verify Console does not show runtime warning banner even when load warning is present
 
 ### 9.4 Regression Gate
 
@@ -295,5 +325,6 @@ Run in `client`:
 - Top tab labels are localized according to selected locale.
 - Locale persists across refresh and applies to both routes.
 - Endpoint overrides persist locally and are consumed by Console.
+- Endpoint override changes are consumed by Console on next Console mount (route re-entry or page reload), not by live hot-rebind.
 - Endpoint update in `/settings` is immediately consumed by Provider section in the same page session.
 - Existing console runtime behavior remains intact.
