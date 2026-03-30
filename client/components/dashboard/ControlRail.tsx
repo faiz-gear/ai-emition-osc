@@ -1,7 +1,16 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import {
+  CheckCircle,
+  RadioButton,
+  WarningCircle,
+  XCircle,
+} from "@phosphor-icons/react";
 
+import { MagneticButton } from "@/components/dashboard/MagneticButton";
+import { StatusPulse } from "@/components/dashboard/StatusPulse";
+import { useI18n } from "@/lib/i18n";
 import type { ConnectionState } from "@/lib/useEventStream";
 
 type ControlRailProps = {
@@ -17,36 +26,46 @@ type ControlRailProps = {
   onDismissError: () => void;
 };
 
-function connectionLabel(state: ConnectionState) {
+function connectionLabel(state: ConnectionState, t: ReturnType<typeof useI18n>["t"]) {
   if (state === "connected") {
-    return "Connected";
+    return t("connected");
   }
 
   if (state === "connecting") {
-    return "Connecting";
+    return t("connecting");
   }
 
-  return "Disconnected";
+  return t("disconnected");
 }
 
 function connectionClass(state: ConnectionState) {
   if (state === "connected") {
-    return "bg-[color:rgba(31,157,85,0.12)] text-[color:var(--success)] border-[color:rgba(31,157,85,0.4)]";
+    return "bg-emerald-500/10 text-[color:var(--success)] border-emerald-500/30";
   }
 
   if (state === "connecting") {
-    return "bg-[color:rgba(183,121,31,0.12)] text-[color:var(--warning)] border-[color:rgba(183,121,31,0.4)]";
+    return "bg-amber-500/10 text-[color:var(--warning)] border-amber-500/30";
   }
 
-  return "bg-[color:rgba(197,48,48,0.12)] text-[color:var(--danger)] border-[color:rgba(197,48,48,0.4)]";
+  return "bg-rose-500/10 text-[color:var(--danger)] border-rose-500/30";
+}
+
+function connectionTone(state: ConnectionState): "success" | "warning" | "danger" {
+  if (state === "connected") {
+    return "success";
+  }
+  if (state === "connecting") {
+    return "warning";
+  }
+  return "danger";
 }
 
 function listeningClass(listening: boolean) {
   if (listening) {
-    return "bg-[color:rgba(94,106,210,0.12)] text-[color:var(--accent)] border-[color:rgba(94,106,210,0.35)]";
+    return "bg-[color:var(--accent-soft)] text-[color:var(--accent)] border-[color:rgba(15,118,110,0.35)]";
   }
 
-  return "bg-[color:rgba(17,19,24,0.06)] text-[color:var(--text-secondary)] border-[color:var(--border)]";
+  return "bg-zinc-900/[0.04] text-[color:var(--text-secondary)] border-[color:var(--border)]";
 }
 
 export function ControlRail({
@@ -61,6 +80,7 @@ export function ControlRail({
   onStop,
   onDismissError,
 }: ControlRailProps) {
+  const { t } = useI18n();
   const [isErrorSheetOpen, setIsErrorSheetOpen] = useState(false);
 
   const controlsLocked = isStarting || isStopping;
@@ -68,100 +88,111 @@ export function ControlRail({
   const canShowError = hasError && Boolean(errorMessage?.trim());
 
   const normalizedError = useMemo(
-    () => (errorMessage ?? "").trim() || "unknown-error",
-    [errorMessage],
+    () => (errorMessage ?? "").trim() || t("unknownError"),
+    [errorMessage, t],
   );
 
+  const connectionToneValue = connectionTone(connectionState);
+
   return (
-    <section className="sticky top-0 z-30 rounded-[var(--radius-lg)] border border-[color:var(--border)] bg-[color:rgba(255,255,255,0.92)] p-[var(--space-3)] shadow-[0_8px_22px_rgba(17,19,24,0.06)] backdrop-blur">
-      <div className="flex items-center gap-[var(--space-2)] overflow-x-auto">
-        <button
-          type="button"
-          onClick={onStart}
-          disabled={controlsLocked || listening}
-          className="rounded-md border border-[color:rgba(94,106,210,0.4)] bg-[color:rgba(94,106,210,0.12)] px-3 py-1.5 text-xs font-semibold text-[color:var(--accent)] transition hover:bg-[color:rgba(94,106,210,0.18)] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isStarting ? "Starting..." : "Start"}
-        </button>
-
-        <button
-          type="button"
-          onClick={onStop}
-          disabled={controlsLocked || !listening}
-          className="rounded-md border border-[color:rgba(197,48,48,0.35)] bg-[color:rgba(197,48,48,0.1)] px-3 py-1.5 text-xs font-semibold text-[color:var(--danger)] transition hover:bg-[color:rgba(197,48,48,0.15)] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isStopping ? "Stopping..." : "Stop"}
-        </button>
-
-        <span
-          className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1 text-[11px] font-medium ${connectionClass(
-            connectionState,
-          )}`}
-        >
-          {connectionLabel(connectionState)}
-        </span>
-
-        <span
-          className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1 text-[11px] font-medium ${listeningClass(
-            listening,
-          )}`}
-        >
-          {listening ? "Listening" : "Stopped"}
-        </span>
-
-        {canShowError && isMobile ? (
-          <button
+    <section className="dashboard-enter sticky top-4 z-20 rounded-[2rem] border border-white/60 bg-white/85 p-4 shadow-[0_18px_45px_-32px_rgba(22,30,24,0.42),inset_0_1px_0_rgba(255,255,255,0.8)] backdrop-blur-md">
+      <div className="grid gap-4 lg:grid-cols-[auto_1fr] lg:items-center">
+        <div className="flex flex-wrap items-center gap-2">
+          <MagneticButton
             type="button"
-            onClick={() => setIsErrorSheetOpen(true)}
-            className="ml-auto inline-flex items-center rounded-full border border-[color:rgba(197,48,48,0.35)] bg-[color:rgba(197,48,48,0.08)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--danger)]"
-            aria-label="Show error details"
+            onClick={onStart}
+            disabled={controlsLocked || listening}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[color:rgba(15,118,110,0.35)] bg-[color:var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[color:var(--accent)] transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:-translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Error
-          </button>
-        ) : null}
+            <CheckCircle size={15} weight="duotone" />
+            {isStarting ? t("starting") : t("start")}
+          </MagneticButton>
 
-        {canShowError && !isMobile ? (
-          <div className="ml-auto flex min-w-0 items-center gap-2 rounded-md border border-[color:rgba(197,48,48,0.3)] bg-[color:rgba(197,48,48,0.08)] px-2 py-1">
-            <p className="truncate text-xs text-[color:var(--danger)]">{normalizedError}</p>
-            <button
+          <MagneticButton
+            type="button"
+            onClick={onStop}
+            disabled={controlsLocked || !listening}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/35 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-[color:var(--danger)] transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] active:-translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <XCircle size={15} weight="duotone" />
+            {isStopping ? t("stopping") : t("stop")}
+          </MagneticButton>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 overflow-x-auto">
+          <span
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${connectionClass(
+              connectionState,
+            )}`}
+          >
+            <StatusPulse tone={connectionToneValue} />
+            {connectionLabel(connectionState, t)}
+          </span>
+
+          <span
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${listeningClass(
+              listening,
+            )}`}
+          >
+            <RadioButton size={13} weight="duotone" />
+            {listening ? t("listening") : t("stopped")}
+          </span>
+
+          {canShowError && isMobile ? (
+            <MagneticButton
               type="button"
-              onClick={onDismissError}
-              className="rounded px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--danger)] hover:bg-[color:rgba(197,48,48,0.12)]"
+              onClick={() => setIsErrorSheetOpen(true)}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-rose-500/35 bg-rose-500/10 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--danger)] active:-translate-y-[1px]"
+              aria-label={t("showErrorDetails")}
             >
-              Dismiss
-            </button>
-          </div>
-        ) : null}
+              <WarningCircle size={13} weight="duotone" />
+              {t("error")}
+            </MagneticButton>
+          ) : null}
+
+          {canShowError && !isMobile ? (
+            <div className="ml-auto flex min-w-0 items-center gap-2 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-2 py-1.5">
+              <p className="truncate text-xs text-[color:var(--danger)]">{normalizedError}</p>
+              <MagneticButton
+                type="button"
+                onClick={onDismissError}
+                className="rounded-lg px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--danger)] transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-rose-500/15 active:-translate-y-[1px]"
+              >
+                {t("dismiss")}
+              </MagneticButton>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {isMobile && isErrorSheetOpen ? (
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-x-0 bottom-0 z-40 rounded-t-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4 shadow-[0_-8px_30px_rgba(17,19,24,0.2)]"
+          className="fixed inset-x-0 bottom-0 z-30 rounded-t-[1.75rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-4 shadow-[0_-12px_30px_rgba(21,26,23,0.22)]"
         >
           <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--text-secondary)]">
-            Last Error
+            {t("lastError")}
           </p>
           <p className="mt-2 text-sm text-[color:var(--danger)]">{normalizedError}</p>
           <div className="mt-3 flex justify-end gap-2">
-            <button
+            <MagneticButton
               type="button"
               onClick={() => setIsErrorSheetOpen(false)}
-              className="rounded-md border border-[color:var(--border)] px-3 py-1.5 text-xs text-[color:var(--text-secondary)]"
+              className="rounded-xl border border-[color:var(--border)] px-3 py-1.5 text-xs text-[color:var(--text-secondary)] active:-translate-y-[1px]"
             >
-              Close
-            </button>
-            <button
+              {t("close")}
+            </MagneticButton>
+            <MagneticButton
               type="button"
               onClick={() => {
                 onDismissError();
                 setIsErrorSheetOpen(false);
               }}
-              className="rounded-md border border-[color:rgba(197,48,48,0.35)] bg-[color:rgba(197,48,48,0.08)] px-3 py-1.5 text-xs font-semibold text-[color:var(--danger)]"
+              className="rounded-xl border border-rose-500/35 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-[color:var(--danger)] active:-translate-y-[1px]"
             >
-              Dismiss
-            </button>
+              {t("dismiss")}
+            </MagneticButton>
           </div>
         </div>
       ) : null}
