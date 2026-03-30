@@ -1,6 +1,6 @@
 "use client";
 
-import {
+import React, {
   useCallback,
   useEffect,
   useMemo,
@@ -9,8 +9,9 @@ import {
   useState,
 } from "react";
 
+import { AppShell } from "@/components/navigation/AppShell";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
-import { API_BASE, WS_URL } from "@/lib/config";
+import { loadRuntimeConfig } from "@/lib/config";
 import {
   COMMAND_TIMEOUT_MS,
   FRESHNESS_THRESHOLDS_MS,
@@ -211,8 +212,8 @@ function normalizeErrorMessage(error: unknown): string {
   return "unknown-error";
 }
 
-async function postJson(path: string, signal: AbortSignal) {
-  const response = await fetch(`${API_BASE}${path}`, {
+async function postJson(apiBase: string, path: string, signal: AbortSignal) {
+  const response = await fetch(`${apiBase}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal,
@@ -227,6 +228,7 @@ async function postJson(path: string, signal: AbortSignal) {
 }
 
 export default function DashboardPage() {
+  const [runtimeConfig] = useState(() => loadRuntimeConfig().config);
   const [state, dispatch] = useReducer(reducer, initialState);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [followLatest, setFollowLatest] = useState(true);
@@ -281,7 +283,7 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const { connectionState } = useEventStream(WS_URL, onEvent);
+  const { connectionState } = useEventStream(runtimeConfig.wsUrl, onEvent);
 
   const runListeningCommand = useCallback(async (path: string, kind: "start" | "stop") => {
     const sequenceId = commandTrackerRef.current.next();
@@ -289,7 +291,7 @@ export default function DashboardPage() {
 
     try {
       const status = await withCommandTimeout(
-        (signal) => postJson(path, signal),
+        (signal) => postJson(runtimeConfig.apiBase, path, signal),
         COMMAND_TIMEOUT_MS,
       );
 
@@ -315,7 +317,7 @@ export default function DashboardPage() {
         setPendingCommand(null);
       }
     }
-  }, []);
+  }, [runtimeConfig.apiBase]);
 
   const startListening = useCallback(async () => {
     await runListeningCommand("/api/listening/start", "start");
@@ -417,37 +419,36 @@ export default function DashboardPage() {
   const listening = state.status?.status.listening ?? false;
 
   return (
-    <DashboardShell
-      connectionState={connectionState}
-      listening={listening}
-      isStarting={pendingCommand === "start"}
-      isStopping={pendingCommand === "stop"}
-      errorMessage={visibleErrorMessage}
-      onStart={() => {
-        void startListening();
-      }}
-      onStop={() => {
-        void stopListening();
-      }}
-      onDismissError={dismissVisibleError}
-      isMobile={isMobile}
-      liveText={liveText}
-      isProcessing={isProcessing}
-      freshness={freshness}
-      lastUpdatedAt={state.lastTranscriptUpdateMs}
-      metrics={state.metrics}
-      utterances={state.utterances}
-      selectedId={selectedId}
-      followLatest={followLatest}
-      onSelectUtterance={(id) => {
-        setFollowLatest(false);
-        setSelectedId(id);
-      }}
-      onToggleFollow={setFollowLatest}
-      selectedUtterance={selectedUtterance}
-      apiBase={API_BASE}
-      activeProviderId={state.status?.config.active_provider ?? null}
-      wsUrl={WS_URL}
-    />
+    <AppShell activeTab="console">
+      <DashboardShell
+        connectionState={connectionState}
+        listening={listening}
+        isStarting={pendingCommand === "start"}
+        isStopping={pendingCommand === "stop"}
+        errorMessage={visibleErrorMessage}
+        onStart={() => {
+          void startListening();
+        }}
+        onStop={() => {
+          void stopListening();
+        }}
+        onDismissError={dismissVisibleError}
+        isMobile={isMobile}
+        liveText={liveText}
+        isProcessing={isProcessing}
+        freshness={freshness}
+        lastUpdatedAt={state.lastTranscriptUpdateMs}
+        metrics={state.metrics}
+        utterances={state.utterances}
+        selectedId={selectedId}
+        followLatest={followLatest}
+        onSelectUtterance={(id) => {
+          setFollowLatest(false);
+          setSelectedId(id);
+        }}
+        onToggleFollow={setFollowLatest}
+        selectedUtterance={selectedUtterance}
+      />
+    </AppShell>
   );
 }
