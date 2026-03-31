@@ -1,6 +1,7 @@
 import { JetBrains_Mono, Outfit } from "next/font/google";
 import type { Metadata } from "next";
 
+import { ClientProviders } from "@/components/providers/ClientProviders";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -26,7 +27,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className={`${outfit.variable} ${jetbrainsMono.variable} antialiased`}>
-        {children}
+        <ClientProviders>{children}</ClientProviders>
       </body>
     </html>
   );
