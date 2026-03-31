@@ -1,9 +1,9 @@
-import { JetBrains_Mono, Manrope } from "next/font/google";
+import { JetBrains_Mono, Outfit } from "next/font/google";
 import type { Metadata } from "next";
 
 import "./globals.css";
 
-const manrope = Manrope({
+const outfit = Outfit({
   subsets: ["latin"],
   variable: "--font-ui",
 });
@@ -25,7 +25,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className={`${manrope.variable} ${jetbrainsMono.variable}`}>
+      <body className={`${outfit.variable} ${jetbrainsMono.variable} antialiased`}>
         {children}
       </body>
     </html>

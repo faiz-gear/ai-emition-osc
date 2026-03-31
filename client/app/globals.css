@@ -3,64 +3,82 @@
 @tailwind utilities;
 
 :root {
-  --bg: #f7f7f8;
+  --bg: #f3f5f4;
   --surface: #ffffff;
-  --surface-muted: #fbfbfc;
-  --border: #e6e8eb;
-  --text-primary: #111318;
-  --text-secondary: #5f6470;
-  --accent: #5e6ad2;
-  --success: #1f9d55;
-  --warning: #b7791f;
-  --danger: #c53030;
+  --surface-muted: #f7f8f7;
+  --border: #d7dcd8;
+  --text-primary: #151a17;
+  --text-secondary: #59635d;
+  --accent: #0f766e;
+  --accent-soft: rgba(15, 118, 110, 0.14);
+  --success: #15803d;
+  --warning: #a16207;
+  --danger: #be123c;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
-  --radius-md: 10px;
-  --radius-lg: 12px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
 }
 
 html,
 body {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
   background: var(--bg);
   color: var(--text-primary);
   font-family:
-    var(--font-ui), "SF Pro Text", "Segoe UI", "Helvetica Neue", sans-serif;
+    var(--font-ui), "Segoe UI", "Helvetica Neue", sans-serif;
+  position: relative;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 8% 15%, rgba(15, 118, 110, 0.14), transparent 32%),
+    radial-gradient(circle at 88% 10%, rgba(180, 83, 9, 0.09), transparent 26%),
+    linear-gradient(160deg, #f9faf9 0%, #f3f5f4 58%, #eef2ef 100%);
 }
 
 code,
 .mono {
-  font-family: var(--font-mono), "SF Mono", "Menlo", "Consolas", monospace;
+  font-family: var(--font-mono), "Menlo", "Consolas", monospace;
 }
 
 .transcript-shimmer {
   background: linear-gradient(
-    110deg,
+    105deg,
     var(--text-primary) 0%,
-    var(--text-primary) 42%,
-    #6b7280 50%,
-    var(--text-primary) 58%,
+    var(--text-primary) 38%,
+    #8f968f 50%,
+    var(--text-primary) 62%,
     var(--text-primary) 100%
   );
-  background-size: 220% 100%;
+  background-size: 230% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: transcriptSweep 2s linear infinite;
+  animation: transcriptSweep 1.95s linear infinite;
 }
 
 .dashboard-enter {
-  animation: dashboardFadeIn 220ms ease-out both;
+  animation: dashboardFadeIn 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.status-ticker {
+  animation: statusShift 8s linear infinite;
 }
 
 @keyframes transcriptSweep {
   from {
-    background-position: 200% 0;
+    background-position: 210% 0;
   }
 
   to {
@@ -71,7 +89,7 @@ code,
 @keyframes dashboardFadeIn {
   from {
     opacity: 0;
-    transform: translateY(2px);
+    transform: translateY(6px);
   }
 
   to {
@@ -80,9 +98,20 @@ code,
   }
 }
 
+@keyframes statusShift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .transcript-shimmer,
-  .dashboard-enter {
+  .dashboard-enter,
+  .status-ticker {
     animation: none;
   }
 }

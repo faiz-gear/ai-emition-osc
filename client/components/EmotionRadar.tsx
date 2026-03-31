@@ -35,13 +35,13 @@ export function EmotionRadar({ emotion }: { emotion: EmotionResult | null }) {
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <RadarChart data={data}>
-          <PolarGrid stroke="rgba(148, 163, 184, 0.25)" />
-          <PolarAngleAxis dataKey="dimension" tick={{ fill: "#94a3b8", fontSize: 12 }} />
+          <PolarGrid stroke="rgba(89, 99, 93, 0.2)" />
+          <PolarAngleAxis dataKey="dimension" tick={{ fill: "#59635d", fontSize: 12 }} />
           <Radar
             dataKey="value"
-            stroke="#38bdf8"
-            fill="#38bdf8"
-            fillOpacity={0.25}
+            stroke="#0f766e"
+            fill="#0f766e"
+            fillOpacity={0.22}
             dot={false}
           />
           <Tooltip />
@@ -50,4 +50,3 @@ export function EmotionRadar({ emotion }: { emotion: EmotionResult | null }) {
     </div>
   );
 }
-
