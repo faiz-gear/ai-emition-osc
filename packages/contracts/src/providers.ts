@@ -1,4 +1,4 @@
-import type { ProviderSummary, ProviderType } from "./domain";
+import type { ProviderSummary, ProviderType } from "./domain.js";
 
 export type ProviderTestResult = {
   ok: boolean;

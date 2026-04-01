@@ -1,6 +1,6 @@
-import type { DownloadProgressEvent, RecognitionStrategy } from "./asr";
-import type { Metrics, ProviderSummary, Utterance } from "./domain";
-import type { DesktopErrorCode } from "./errors";
+import type { DownloadProgressEvent, RecognitionStrategy } from "./asr.js";
+import type { Metrics, ProviderSummary, Utterance } from "./domain.js";
+import type { DesktopErrorCode } from "./errors.js";
 
 export const DesktopCommand = {
   StartListening: "session:start-listening",

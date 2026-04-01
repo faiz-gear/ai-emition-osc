@@ -3,8 +3,10 @@ import {
   AsrErrorCode,
   DesktopCommand,
   ProviderErrorCode,
+  RecognitionStrategy,
   RuntimeEvent,
-  isFixedLanguage
+  isFixedLanguage,
+  isRecognitionStrategy
 } from "../index";
 
 test("desktop commands remain stable", () => {
@@ -20,6 +22,17 @@ test("fixed language guard accepts only zh and en", () => {
   expect(isFixedLanguage("zh")).toBe(true);
   expect(isFixedLanguage("en")).toBe(true);
   expect(isFixedLanguage("ja")).toBe(false);
+});
+
+test("recognition strategy supports auto and fixed zh/en", () => {
+  const autoStrategy: RecognitionStrategy = { mode: "auto" };
+  const fixedZh: RecognitionStrategy = { mode: "fixed", fixedLanguage: "zh" };
+  const fixedEn: RecognitionStrategy = { mode: "fixed", fixedLanguage: "en" };
+
+  expect(isRecognitionStrategy(autoStrategy)).toBe(true);
+  expect(isRecognitionStrategy(fixedZh)).toBe(true);
+  expect(isRecognitionStrategy(fixedEn)).toBe(true);
+  expect(isRecognitionStrategy({ mode: "fixed", fixedLanguage: "ja" })).toBe(false);
 });
 
 test("runtime events are discriminated by type", () => {
