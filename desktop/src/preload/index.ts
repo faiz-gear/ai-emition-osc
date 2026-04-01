@@ -1,3 +1,4 @@
 import { contextBridge } from "electron";
+import { createDesktopApi } from "./desktop-api";
 
-contextBridge.exposeInMainWorld("electronAPI", {});
+contextBridge.exposeInMainWorld("desktopApi", createDesktopApi());

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const whenReadyMock = vi.fn(async () => undefined);
 const onMock = vi.fn();
+const ipcMainHandleMock = vi.fn();
 
 const browserWindowCtor = vi.fn(() => ({
   loadURL: vi.fn(),
@@ -16,6 +17,9 @@ vi.mock("electron", () => ({
   app: {
     whenReady: whenReadyMock,
     on: onMock
+  },
+  ipcMain: {
+    handle: ipcMainHandleMock
   },
   BrowserWindow: browserWindowMock
 }));
@@ -54,6 +58,7 @@ describe("desktop bootstrap", () => {
     await bootstrapMain();
 
     expect(whenReadyMock).toHaveBeenCalledTimes(1);
+    expect(ipcMainHandleMock).toHaveBeenCalled();
     expect(createMainWindowMock).toHaveBeenCalledTimes(1);
     expect(onMock).toHaveBeenCalledWith("activate", expect.any(Function));
   });

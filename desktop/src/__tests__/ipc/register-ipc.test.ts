@@ -1,0 +1,159 @@
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { DesktopCommand, DesktopEventChannel, type RuntimeEvent } from "@ai-emotion/contracts";
+import { createDesktopApi } from "../../preload/desktop-api";
+import { registerIpc } from "../../main/ipc/register-ipc";
+
+const {
+  handleMock,
+  ipcMainOnMock,
+  ipcRendererInvokeMock,
+  ipcRendererOnMock,
+  ipcRendererOffMock
+} = vi.hoisted(() => ({
+  handleMock: vi.fn(),
+  ipcMainOnMock: vi.fn(),
+  ipcRendererInvokeMock: vi.fn(),
+  ipcRendererOnMock: vi.fn(),
+  ipcRendererOffMock: vi.fn()
+}));
+
+vi.mock("electron", () => ({
+  ipcMain: {
+    handle: handleMock,
+    on: ipcMainOnMock
+  },
+  ipcRenderer: {
+    invoke: ipcRendererInvokeMock,
+    on: ipcRendererOnMock,
+    off: ipcRendererOffMock
+  }
+}));
+
+const expectedCommandNames = [
+  "session:start-listening",
+  "session:stop-listening",
+  "runtime:get-snapshot",
+  "asr:list-model-catalog",
+  "asr:list-installed-models",
+  "asr:download-model",
+  "asr:activate-model",
+  "asr:delete-model",
+  "asr:get-recognition-strategy",
+  "asr:update-recognition-strategy",
+  "providers:list",
+  "providers:create",
+  "providers:update",
+  "providers:delete",
+  "providers:test",
+  "providers:activate"
+] as const;
+
+function createServices() {
+  return {
+    session: {
+      startListening: vi.fn(async () => undefined),
+      stopListening: vi.fn(async () => undefined)
+    },
+    runtime: {
+      getSnapshot: vi.fn(async () => ({
+        status: { listening: false },
+        metrics: {
+          uptime_seconds: 0,
+          ws_clients: 0,
+          utterances_total: 0,
+          emotion_total: 0,
+          errors_total: 0
+        },
+        utterances: []
+      })),
+      subscribe: vi.fn((_listener: (event: RuntimeEvent) => void) => () => undefined)
+    },
+    asr: {
+      listCatalog: vi.fn(async () => []),
+      listInstalled: vi.fn(async () => []),
+      downloadModel: vi.fn(async (_modelId: string) => undefined),
+      activateModel: vi.fn(async (_modelId: string) => undefined),
+      deleteModel: vi.fn(async (_modelId: string) => undefined),
+      getRecognitionStrategy: vi.fn(async () => ({ mode: "auto" as const })),
+      updateRecognitionStrategy: vi.fn(
+        async (input: { mode: "auto" } | { mode: "fixed"; fixedLanguage: "zh" | "en" }) => input
+      )
+    },
+    providers: {
+      list: vi.fn(async () => ({ providers: [] })),
+      create: vi.fn(async (input: unknown) => ({ id: "provider-1", ...(input as object) })),
+      update: vi.fn(async (input: unknown) => ({ id: "provider-1", ...(input as object) })),
+      delete: vi.fn(async (_providerId: string) => undefined),
+      test: vi.fn(async (_providerId: string) => ({ ok: true, latency_ms: 12 })),
+      activate: vi.fn(async (_providerId: string) => undefined)
+    }
+  };
+}
+
+async function invokeValidated(command: string, payload?: unknown) {
+  const registration = handleMock.mock.calls.find(([channel]) => channel === command);
+  expect(registration, `Missing registration for ${command}`).toBeTruthy();
+  const [, handler] = registration as [string, (_event: unknown, input?: unknown) => Promise<unknown>];
+  return handler({} as unknown, payload);
+}
+
+describe("registerIpc", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("registers every renderer command exactly once", async () => {
+    expect(Object.values(DesktopCommand).sort()).toEqual([...expectedCommandNames].sort());
+
+    registerIpc(createServices());
+
+    const registeredChannels = handleMock.mock.calls.map(([channel]) => channel);
+    expect(registeredChannels.sort()).toEqual([...Object.values(DesktopCommand)].sort());
+
+    for (const commandName of Object.values(DesktopCommand)) {
+      expect(registeredChannels.filter((channel) => channel === commandName)).toHaveLength(1);
+    }
+  });
+
+  test("update recognition strategy rejects unsupported fixed language", async () => {
+    const services = createServices();
+    registerIpc(services);
+
+    await expect(
+      invokeValidated("asr:update-recognition-strategy", {
+        mode: "fixed",
+        fixedLanguage: "ja"
+      })
+    ).rejects.toThrow(/invalid/i);
+
+    expect(services.asr.updateRecognitionStrategy).not.toHaveBeenCalled();
+  });
+
+  test("session subscription returns an unsubscribe function", () => {
+    const listener = vi.fn();
+    const api = createDesktopApi();
+
+    const unsubscribe = api.session.subscribe(listener);
+
+    expect(typeof unsubscribe).toBe("function");
+    expect(ipcRendererOnMock).toHaveBeenCalledWith(DesktopEventChannel.RuntimeEvent, expect.any(Function));
+
+    const [, wrappedListener] = ipcRendererOnMock.mock.calls[0] as [
+      string,
+      (_event: unknown, runtimeEvent: RuntimeEvent) => void
+    ];
+    const runtimeEvent: RuntimeEvent = {
+      type: "runtime:status",
+      payload: { listening: true }
+    };
+
+    wrappedListener({} as unknown, runtimeEvent);
+    expect(listener).toHaveBeenCalledWith(runtimeEvent);
+
+    unsubscribe();
+    expect(ipcRendererOffMock).toHaveBeenCalledWith(
+      DesktopEventChannel.RuntimeEvent,
+      wrappedListener
+    );
+  });
+});
