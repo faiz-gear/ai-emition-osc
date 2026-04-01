@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "main": "dist/main/index.js",
+  "main": "dist/main/main.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -12,10 +12,10 @@
   "dependencies": {
     "@ai-emotion/contracts": "file:../packages/contracts",
     "electron": "^31.7.7",
-    "electron-vite": "^2.3.0"
+    "electron-vite": "^2.3.0",
+    "vitest": "^2.1.0"
   },
   "devDependencies": {
-    "@types/node": "^20.11.30",
-    "vitest": "^2.1.0"
+    "@types/node": "^20.11.30"
   }
 }

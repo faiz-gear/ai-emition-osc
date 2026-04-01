@@ -14,7 +14,7 @@
     "contracts:build": "npm run build --workspace @ai-emotion/contracts",
     "desktop:dev": "npm run dev --workspace desktop",
     "desktop:build": "npm run build --workspace desktop",
-    "client:build": "npm run build --workspace client"
+    "client:build": "npm run build --workspace client && node -e \"const fs=require('node:fs');fs.rmSync('client-dist',{recursive:true,force:true});fs.cpSync('client/out','client-dist',{recursive:true});\""
   },
   "devDependencies": {
     "typescript": "^5.5.4",

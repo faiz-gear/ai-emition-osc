@@ -17,8 +17,22 @@ vi.mock("electron", () => ({
 }));
 
 describe("desktop bootstrap", () => {
+  test("electron main entrypoint invokes bootstrap on module load", async () => {
+    vi.resetModules();
+    const bootstrapMainMock = vi.fn(async () => undefined);
+    vi.doMock("../../main/index", () => ({
+      bootstrapMain: bootstrapMainMock
+    }));
+
+    await import("../../main/main");
+
+    expect(bootstrapMainMock).toHaveBeenCalledTimes(1);
+    vi.doUnmock("../../main/index");
+  });
+
   test("main process bootstrap delegates BrowserWindow creation to createMainWindow", async () => {
     vi.resetModules();
+    vi.doUnmock("../../main/index");
     const createMainWindowMock = vi.fn(() => ({
       loadURL: vi.fn(),
       loadFile: vi.fn()
@@ -37,6 +51,7 @@ describe("desktop bootstrap", () => {
 
   test("BrowserWindow preload path is configured", async () => {
     vi.resetModules();
+    vi.doUnmock("../../main/index");
     vi.doUnmock("../../main/windows/create-main-window");
 
     const { createMainWindow } = await import("../../main/windows/create-main-window");
@@ -54,6 +69,7 @@ describe("desktop bootstrap", () => {
 
   test("production renderer entry targets exported client html", async () => {
     vi.resetModules();
+    vi.doUnmock("../../main/index");
     vi.doUnmock("../../main/windows/create-main-window");
 
     const { resolveRendererEntry } = await import("../../main/index");
