@@ -1,15 +1,23 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
-import { DesktopCommand, DesktopEventChannel, type RuntimeEvent } from "@ai-emotion/contracts";
+import { beforeEach, describe, expect, expectTypeOf, test, vi } from "vitest";
+import {
+  DesktopCommand,
+  DesktopEventChannel,
+  type DesktopApi,
+  type RuntimeEvent
+} from "@ai-emotion/contracts";
 import { createDesktopApi } from "../../preload/desktop-api";
+import { createInMemoryDesktopIpcServices } from "../../main/ipc/in-memory-desktop-ipc-services";
 import { registerIpc } from "../../main/ipc/register-ipc";
 
 const {
+  browserWindowGetAllWindowsMock,
   handleMock,
   ipcMainOnMock,
   ipcRendererInvokeMock,
   ipcRendererOnMock,
   ipcRendererOffMock
 } = vi.hoisted(() => ({
+  browserWindowGetAllWindowsMock: vi.fn(() => []),
   handleMock: vi.fn(),
   ipcMainOnMock: vi.fn(),
   ipcRendererInvokeMock: vi.fn(),
@@ -21,6 +29,9 @@ vi.mock("electron", () => ({
   ipcMain: {
     handle: handleMock,
     on: ipcMainOnMock
+  },
+  BrowserWindow: {
+    getAllWindows: browserWindowGetAllWindowsMock
   },
   ipcRenderer: {
     invoke: ipcRendererInvokeMock,
@@ -100,6 +111,7 @@ async function invokeValidated(command: string, payload?: unknown) {
 describe("registerIpc", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    browserWindowGetAllWindowsMock.mockReturnValue([]);
   });
 
   test("registers every renderer command exactly once", async () => {
@@ -155,5 +167,23 @@ describe("registerIpc", () => {
       DesktopEventChannel.RuntimeEvent,
       wrappedListener
     );
+  });
+
+  test("in-memory ipc services keep placeholder state isolated per instance", async () => {
+    const firstServices = createInMemoryDesktopIpcServices();
+    const secondServices = createInMemoryDesktopIpcServices();
+
+    await firstServices.session.startListening();
+
+    await expect(firstServices.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: true }
+    });
+    await expect(secondServices.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: false }
+    });
+  });
+
+  test("window desktopApi ambient type matches the shared contract surface", () => {
+    expectTypeOf<Window["desktopApi"]>().toEqualTypeOf<DesktopApi>();
   });
 });

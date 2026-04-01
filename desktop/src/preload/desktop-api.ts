@@ -4,6 +4,7 @@ import {
   DesktopEventChannel,
   type AsrModelCatalogItem,
   type CreateProviderRequest,
+  type DesktopApi,
   type InstalledAsrModel,
   type ListProvidersResponse,
   type PatchProviderRequest,
@@ -15,32 +16,7 @@ import {
 } from "@ai-emotion/contracts";
 
 type IpcRendererLike = Pick<typeof ipcRenderer, "invoke" | "on" | "off">;
-
-export type DesktopApi = {
-  session: {
-    startListening(): Promise<void>;
-    stopListening(): Promise<void>;
-    getSnapshot(): Promise<RuntimeSnapshot>;
-    subscribe(listener: (event: RuntimeEvent) => void): () => void;
-  };
-  asr: {
-    listCatalog(): Promise<AsrModelCatalogItem[]>;
-    listInstalled(): Promise<InstalledAsrModel[]>;
-    downloadModel(modelId: string): Promise<void>;
-    activateModel(modelId: string): Promise<void>;
-    deleteModel(modelId: string): Promise<void>;
-    getRecognitionStrategy(): Promise<RecognitionStrategy>;
-    updateRecognitionStrategy(input: RecognitionStrategy): Promise<RecognitionStrategy>;
-  };
-  providers: {
-    list(): Promise<ListProvidersResponse>;
-    create(input: CreateProviderRequest): Promise<ProviderSummary>;
-    update(providerId: string, patch: PatchProviderRequest): Promise<ProviderSummary>;
-    delete(providerId: string): Promise<void>;
-    test(providerId: string): Promise<ProviderTestResult>;
-    activate(providerId: string): Promise<void>;
-  };
-};
+export type { DesktopApi } from "@ai-emotion/contracts";
 
 function invoke<TResponse>(ipc: IpcRendererLike, commandName: string, payload?: unknown): Promise<TResponse> {
   return ipc.invoke(commandName, payload) as Promise<TResponse>;

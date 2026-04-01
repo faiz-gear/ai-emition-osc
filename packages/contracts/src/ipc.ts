@@ -46,6 +46,32 @@ export type RuntimeSnapshot = {
   utterances: Utterance[];
 };
 
+export type DesktopApi = {
+  session: {
+    startListening(): Promise<void>;
+    stopListening(): Promise<void>;
+    getSnapshot(): Promise<RuntimeSnapshot>;
+    subscribe(listener: (event: RuntimeEvent) => void): () => void;
+  };
+  asr: {
+    listCatalog(): Promise<AsrModelCatalogItem[]>;
+    listInstalled(): Promise<InstalledAsrModel[]>;
+    downloadModel(modelId: string): Promise<void>;
+    activateModel(modelId: string): Promise<void>;
+    deleteModel(modelId: string): Promise<void>;
+    getRecognitionStrategy(): Promise<RecognitionStrategy>;
+    updateRecognitionStrategy(input: RecognitionStrategy): Promise<RecognitionStrategy>;
+  };
+  providers: {
+    list(): Promise<ListProvidersResponse>;
+    create(input: CreateProviderRequest): Promise<ProviderSummary>;
+    update(providerId: string, patch: PatchProviderRequest): Promise<ProviderSummary>;
+    delete(providerId: string): Promise<void>;
+    test(providerId: string): Promise<ProviderTestResult>;
+    activate(providerId: string): Promise<void>;
+  };
+};
+
 export type ModelIdPayload = {
   modelId: string;
 };

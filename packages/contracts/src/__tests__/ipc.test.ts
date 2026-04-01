@@ -1,8 +1,11 @@
-import { expect, test } from "vitest";
+import { expect, expectTypeOf, test } from "vitest";
 import {
   AsrErrorCode,
   DesktopCommand,
+  DesktopApi,
   DesktopEventChannel,
+  ListProvidersResponse,
+  PatchProviderRequest,
   ProviderErrorCode,
   RecognitionStrategy,
   RuntimeSnapshot,
@@ -85,4 +88,16 @@ test("provider and asr error codes are exported from one place", () => {
   const asrCode: AsrErrorCode = "ASR_MODEL_NOT_FOUND";
   expect(providerCode).toBe("PROVIDER_RATE_LIMITED");
   expect(asrCode).toBe("ASR_MODEL_NOT_FOUND");
+});
+
+test("desktop api type is exported for renderer consumers", () => {
+  expectTypeOf<DesktopApi["session"]["getSnapshot"]>().returns.toEqualTypeOf<
+    Promise<RuntimeSnapshot>
+  >();
+  expectTypeOf<DesktopApi["providers"]["list"]>().returns.toEqualTypeOf<
+    Promise<ListProvidersResponse>
+  >();
+  expectTypeOf<DesktopApi["providers"]["update"]>().parameters.toEqualTypeOf<
+    [providerId: string, patch: PatchProviderRequest]
+  >();
 });
