@@ -8,9 +8,10 @@
     "packages/contracts"
   ],
   "scripts": {
-    "build": "npm run client:build && npm run desktop:build",
+    "build": "npm run contracts:build && npm run client:build && npm run desktop:build",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
+    "contracts:build": "npm run build --workspace @ai-emotion/contracts",
     "desktop:dev": "npm run dev --workspace desktop",
     "desktop:build": "npm run build --workspace desktop",
     "client:build": "npm run build --workspace client"
