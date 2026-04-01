@@ -1,3 +1,5 @@
+import type { ProviderErrorCode } from "./errors.js";
+
 export type EmotionDimensions = {
   joy: number;
   trust: number;
@@ -55,6 +57,6 @@ export type ProviderSummary = {
   has_api_key?: boolean | null;
   headers_keys?: string[] | null;
   status: "ok" | "degraded";
-  error_code?: string | null;
+  error_code?: ProviderErrorCode | null;
   error_message?: string | null;
 };

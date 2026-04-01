@@ -1,4 +1,5 @@
 import type { ProviderSummary, ProviderType } from "./domain.js";
+import type { ProviderErrorCode } from "./errors.js";
 
 export type ProviderTestResult = {
   ok: boolean;
@@ -6,7 +7,7 @@ export type ProviderTestResult = {
 };
 
 export type ProviderErrorResponse = {
-  code: string;
+  code: ProviderErrorCode;
   message: string;
   details: Record<string, unknown>;
 };
