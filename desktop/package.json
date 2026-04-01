@@ -1,0 +1,21 @@
+{
+  "name": "@ai-emotion/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-emotion/contracts": "file:../packages/contracts",
+    "electron": "^31.7.7",
+    "electron-vite": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "vitest": "^2.1.0"
+  }
+}
