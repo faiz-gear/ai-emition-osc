@@ -30,7 +30,7 @@ export type Utterance = {
 
 export type Metrics = {
   uptime_seconds: number;
-  active_clients: number;
+  ws_clients: number;
   utterances_total: number;
   emotion_total: number;
   emotion_dropped_total?: number;
