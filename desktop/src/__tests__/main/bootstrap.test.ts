@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const whenReadyMock = vi.fn(async () => undefined);
 const onMock = vi.fn();
@@ -7,16 +7,25 @@ const browserWindowCtor = vi.fn(() => ({
   loadURL: vi.fn(),
   loadFile: vi.fn()
 }));
+const browserWindowGetAllWindowsMock = vi.fn(() => []);
+const browserWindowMock = Object.assign(browserWindowCtor, {
+  getAllWindows: browserWindowGetAllWindowsMock
+});
 
 vi.mock("electron", () => ({
   app: {
     whenReady: whenReadyMock,
     on: onMock
   },
-  BrowserWindow: browserWindowCtor
+  BrowserWindow: browserWindowMock
 }));
 
 describe("desktop bootstrap", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    browserWindowGetAllWindowsMock.mockReturnValue([]);
+  });
+
   test("electron main entrypoint invokes bootstrap on module load", async () => {
     vi.resetModules();
     const bootstrapMainMock = vi.fn(async () => undefined);
@@ -47,6 +56,52 @@ describe("desktop bootstrap", () => {
     expect(whenReadyMock).toHaveBeenCalledTimes(1);
     expect(createMainWindowMock).toHaveBeenCalledTimes(1);
     expect(onMock).toHaveBeenCalledWith("activate", expect.any(Function));
+  });
+
+  test("activate creates window when no windows are open", async () => {
+    vi.resetModules();
+    vi.doUnmock("../../main/index");
+    const createMainWindowMock = vi.fn(() => ({
+      loadURL: vi.fn(),
+      loadFile: vi.fn()
+    }));
+    vi.doMock("../../main/windows/create-main-window", () => ({
+      createMainWindow: createMainWindowMock
+    }));
+
+    const { bootstrapMain } = await import("../../main/index");
+    await bootstrapMain();
+
+    const activateHandler = onMock.mock.calls.find(([eventName]) => eventName === "activate")?.[1];
+    expect(activateHandler).toBeTypeOf("function");
+
+    browserWindowGetAllWindowsMock.mockReturnValue([]);
+    activateHandler?.();
+
+    expect(createMainWindowMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("activate does not create window when one already exists", async () => {
+    vi.resetModules();
+    vi.doUnmock("../../main/index");
+    const createMainWindowMock = vi.fn(() => ({
+      loadURL: vi.fn(),
+      loadFile: vi.fn()
+    }));
+    vi.doMock("../../main/windows/create-main-window", () => ({
+      createMainWindow: createMainWindowMock
+    }));
+
+    const { bootstrapMain } = await import("../../main/index");
+    await bootstrapMain();
+
+    const activateHandler = onMock.mock.calls.find(([eventName]) => eventName === "activate")?.[1];
+    expect(activateHandler).toBeTypeOf("function");
+
+    browserWindowGetAllWindowsMock.mockReturnValue([{}] as never[]);
+    activateHandler?.();
+
+    expect(createMainWindowMock).toHaveBeenCalledTimes(1);
   });
 
   test("BrowserWindow preload path is configured", async () => {
