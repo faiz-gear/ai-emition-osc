@@ -1,0 +1,22 @@
+{
+  "name": "ai-emotion-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "client",
+    "desktop",
+    "packages/contracts"
+  ],
+  "scripts": {
+    "build": "npm run client:build && npm run desktop:build",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "desktop:dev": "npm run dev --workspace desktop",
+    "desktop:build": "npm run build --workspace desktop",
+    "client:build": "npm run build --workspace client"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.0"
+  }
+}
