@@ -1,6 +1,7 @@
 import type {
   AsrModelCatalogItem,
   CreateProviderRequest,
+  DesktopErrorCode,
   InstalledAsrModel,
   ListProvidersResponse,
   PatchProviderRequest,
@@ -20,6 +21,7 @@ export type DesktopIpcServices = {
   };
   runtime: {
     getSnapshot(): Promise<RuntimeSnapshot>;
+    publishError(code: DesktopErrorCode, message: string): void;
     subscribe(listener: (event: RuntimeEvent) => void): () => void;
   };
   asr: {

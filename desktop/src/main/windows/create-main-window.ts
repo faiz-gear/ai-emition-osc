@@ -1,12 +1,13 @@
 import { BrowserWindow } from "electron";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePreloadPath } from "./preload-path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export function createMainWindow(rendererEntry: string, isDev: boolean): BrowserWindow {
-  const preloadPath = resolve(__dirname, "../../preload/index.js");
+  const preloadPath = resolvePreloadPath(__dirname);
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,

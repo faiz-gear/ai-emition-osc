@@ -8,9 +8,12 @@ import {
 import { createDesktopApi } from "../../preload/desktop-api";
 import { createInMemoryDesktopIpcServices } from "../../main/ipc/in-memory-desktop-ipc-services";
 import { registerIpc } from "../../main/ipc/register-ipc";
+import { CAPTURE_PCM_CHANNEL } from "../../runtime/asr/capture-ipc";
 
 const {
   browserWindowGetAllWindowsMock,
+  destroyCaptureWindowMock,
+  ensureCaptureWindowMock,
   handleMock,
   ipcMainOnMock,
   ipcRendererInvokeMock,
@@ -18,6 +21,8 @@ const {
   ipcRendererOffMock
 } = vi.hoisted(() => ({
   browserWindowGetAllWindowsMock: vi.fn(() => []),
+  destroyCaptureWindowMock: vi.fn(),
+  ensureCaptureWindowMock: vi.fn(),
   handleMock: vi.fn(),
   ipcMainOnMock: vi.fn(),
   ipcRendererInvokeMock: vi.fn(),
@@ -38,6 +43,11 @@ vi.mock("electron", () => ({
     on: ipcRendererOnMock,
     off: ipcRendererOffMock
   }
+}));
+
+vi.mock("../../main/windows/capture-window-runtime", () => ({
+  destroyCaptureWindow: destroyCaptureWindowMock,
+  ensureCaptureWindow: ensureCaptureWindowMock
 }));
 
 const expectedCommandNames = [
@@ -63,7 +73,8 @@ function createServices() {
   return {
     session: {
       startListening: vi.fn(async () => undefined),
-      stopListening: vi.fn(async () => undefined)
+      stopListening: vi.fn(async () => undefined),
+      handleCapturePcmFrame: vi.fn(async () => undefined)
     },
     runtime: {
       getSnapshot: vi.fn(async () => ({
@@ -77,7 +88,8 @@ function createServices() {
         },
         utterances: []
       })),
-      subscribe: vi.fn((_listener: (event: RuntimeEvent) => void) => () => undefined)
+      subscribe: vi.fn((_listener: (event: RuntimeEvent) => void) => () => undefined),
+      publishError: vi.fn()
     },
     asr: {
       listCatalog: vi.fn(async () => []),
@@ -106,6 +118,13 @@ async function invokeValidated(command: string, payload?: unknown) {
   expect(registration, `Missing registration for ${command}`).toBeTruthy();
   const [, handler] = registration as [string, (_event: unknown, input?: unknown) => Promise<unknown>];
   return handler({} as unknown, payload);
+}
+
+function getCaptureListener() {
+  const registration = ipcMainOnMock.mock.calls.find(([channel]) => channel === CAPTURE_PCM_CHANNEL);
+  expect(registration, `Missing capture listener for ${CAPTURE_PCM_CHANNEL}`).toBeTruthy();
+  const [, listener] = registration as [string, (_event: unknown, payload: unknown) => void];
+  return listener;
 }
 
 describe("registerIpc", () => {
@@ -147,6 +166,47 @@ describe("registerIpc", () => {
     ).rejects.toThrow(/invalid/i);
 
     expect(services.asr.updateRecognitionStrategy).not.toHaveBeenCalled();
+  });
+
+  test("start and stop listening manage the hidden capture window lifecycle", async () => {
+    const services = createServices();
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.StartListening);
+    await invokeValidated(DesktopCommand.StopListening);
+
+    expect(services.session.startListening).toHaveBeenCalledTimes(1);
+    expect(ensureCaptureWindowMock).toHaveBeenCalledTimes(1);
+    expect(services.session.stopListening).toHaveBeenCalledTimes(1);
+    expect(destroyCaptureWindowMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("capture worker failures publish runtime errors instead of being dropped", async () => {
+    const services = createServices();
+    services.session.handleCapturePcmFrame.mockRejectedValueOnce(
+      Object.assign(new Error("capture failed"), {
+        code: "ASR_RECOGNITION_FAILED"
+      })
+    );
+    registerIpc(services);
+
+    const captureListener = getCaptureListener();
+    captureListener(
+      {} as unknown,
+      {
+        segmentId: "segment-1",
+        sampleRate: 16_000,
+        isFinal: true,
+        samples: Float32Array.from([0.1, -0.1])
+      }
+    );
+
+    await vi.waitFor(() => {
+      expect(services.runtime.publishError).toHaveBeenCalledWith(
+        "ASR_RECOGNITION_FAILED",
+        "capture failed"
+      );
+    });
   });
 
   test("session subscription returns an unsubscribe function", () => {

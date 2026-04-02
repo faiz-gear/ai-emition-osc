@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const whenReadyMock = vi.fn(async () => undefined);
-const onMock = vi.fn();
-const ipcMainHandleMock = vi.fn();
+const { destroyCaptureWindowMock, ipcMainHandleMock, onMock, whenReadyMock } = vi.hoisted(() => ({
+  destroyCaptureWindowMock: vi.fn(),
+  ipcMainHandleMock: vi.fn(),
+  onMock: vi.fn(),
+  whenReadyMock: vi.fn(async () => undefined)
+}));
 
 const browserWindowCtor = vi.fn(() => ({
   on: vi.fn(),
@@ -24,6 +27,15 @@ vi.mock("electron", () => ({
     handle: ipcMainHandleMock
   },
   BrowserWindow: browserWindowMock
+}));
+
+vi.mock("../../main/windows/capture-window-runtime", () => ({
+  destroyCaptureWindow: destroyCaptureWindowMock,
+  resolveCaptureEntry(isDev: boolean) {
+    return isDev
+      ? "http://localhost:5173/capture.html"
+      : "/tmp/desktop/out/renderer/capture.html";
+  }
 }));
 
 describe("desktop bootstrap", () => {
@@ -66,18 +78,13 @@ describe("desktop bootstrap", () => {
     vi.doUnmock("../../main/index");
   });
 
-  test("main process bootstrap creates both main and hidden capture windows", async () => {
+  test("main process bootstrap creates only the visible main window", async () => {
     vi.resetModules();
     vi.doUnmock("../../main/index");
     const mainWindow = createFakeWindow();
-    const captureWindow = createFakeWindow();
     const createMainWindowMock = vi.fn(() => mainWindow);
-    const createCaptureWindowMock = vi.fn(() => captureWindow);
     vi.doMock("../../main/windows/create-main-window", () => ({
       createMainWindow: createMainWindowMock
-    }));
-    vi.doMock("../../main/windows/create-capture-window", () => ({
-      createCaptureWindow: createCaptureWindowMock
     }));
 
     const { bootstrapMain } = await import("../../main/index");
@@ -86,22 +93,16 @@ describe("desktop bootstrap", () => {
     expect(whenReadyMock).toHaveBeenCalledTimes(1);
     expect(ipcMainHandleMock).toHaveBeenCalled();
     expect(createMainWindowMock).toHaveBeenCalledTimes(1);
-    expect(createCaptureWindowMock).toHaveBeenCalledTimes(1);
     expect(onMock).toHaveBeenCalledWith("activate", expect.any(Function));
   });
 
-  test("activate does not recreate windows while current windows are alive", async () => {
+  test("activate does not recreate the main window while it is alive", async () => {
     vi.resetModules();
     vi.doUnmock("../../main/index");
     const mainWindow = createFakeWindow();
-    const captureWindow = createFakeWindow();
     const createMainWindowMock = vi.fn(() => mainWindow);
-    const createCaptureWindowMock = vi.fn(() => captureWindow);
     vi.doMock("../../main/windows/create-main-window", () => ({
       createMainWindow: createMainWindowMock
-    }));
-    vi.doMock("../../main/windows/create-capture-window", () => ({
-      createCaptureWindow: createCaptureWindowMock
     }));
 
     const { bootstrapMain } = await import("../../main/index");
@@ -112,21 +113,15 @@ describe("desktop bootstrap", () => {
     activateHandler?.();
 
     expect(createMainWindowMock).toHaveBeenCalledTimes(1);
-    expect(createCaptureWindowMock).toHaveBeenCalledTimes(1);
   });
 
-  test("activate recreates destroyed windows", async () => {
+  test("activate recreates the main window after it closes", async () => {
     vi.resetModules();
     vi.doUnmock("../../main/index");
     const mainWindow = createFakeWindow();
-    const captureWindow = createFakeWindow();
     const createMainWindowMock = vi.fn(() => mainWindow);
-    const createCaptureWindowMock = vi.fn(() => captureWindow);
     vi.doMock("../../main/windows/create-main-window", () => ({
       createMainWindow: createMainWindowMock
-    }));
-    vi.doMock("../../main/windows/create-capture-window", () => ({
-      createCaptureWindow: createCaptureWindowMock
     }));
 
     const { bootstrapMain } = await import("../../main/index");
@@ -135,27 +130,56 @@ describe("desktop bootstrap", () => {
     const activateHandler = onMock.mock.calls.find(([eventName]) => eventName === "activate")?.[1];
     expect(activateHandler).toBeTypeOf("function");
 
-    mainWindow.markDestroyed();
-    captureWindow.markDestroyed();
+    mainWindow.emitClosed();
     activateHandler?.();
 
     expect(createMainWindowMock).toHaveBeenCalledTimes(2);
-    expect(createCaptureWindowMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("closing the main window tears down any hidden capture window", async () => {
+    vi.resetModules();
+    vi.doUnmock("../../main/index");
+    const mainWindow = createFakeWindow();
+    const createMainWindowMock = vi.fn(() => mainWindow);
+    vi.doMock("../../main/windows/create-main-window", () => ({
+      createMainWindow: createMainWindowMock
+    }));
+
+    const { bootstrapMain } = await import("../../main/index");
+    await bootstrapMain();
+
+    mainWindow.emitClosed();
+
+    expect(destroyCaptureWindowMock).toHaveBeenCalledTimes(1);
   });
 
   test("BrowserWindow preload path is configured", async () => {
     vi.resetModules();
     vi.doUnmock("../../main/index");
     vi.doUnmock("../../main/windows/create-main-window");
+    vi.doUnmock("../../main/windows/create-capture-window");
 
     const { createMainWindow } = await import("../../main/windows/create-main-window");
+    const { createCaptureWindow } = await import("../../main/windows/create-capture-window");
     createMainWindow("http://localhost:3000", true);
+    createCaptureWindow({
+      captureEntry: "http://localhost:5173/capture.html",
+      isDev: true
+    });
 
     expect(browserWindowCtor).toHaveBeenCalledWith(
       expect.objectContaining({
         webPreferences: expect.objectContaining({
           contextIsolation: true,
-          preload: expect.stringMatching(/preload\/index\.(js|ts)$/)
+          preload: expect.stringMatching(/preload\/index\.mjs$/)
+        })
+      })
+    );
+    expect(browserWindowCtor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({
+          contextIsolation: true,
+          preload: expect.stringMatching(/preload\/index\.mjs$/)
         })
       })
     );

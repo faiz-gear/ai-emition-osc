@@ -1,7 +1,9 @@
 import * as electron from "electron";
 import {
   DesktopCommand,
+  isDesktopErrorCode,
   type DesktopCommandName,
+  type DesktopErrorCode,
   type DesktopCommandPayloadMap,
   type DesktopCommandResponseMap
 } from "@ai-emotion/contracts";
@@ -9,6 +11,7 @@ import type { DesktopIpcServices } from "./desktop-ipc-services";
 import { getDefaultDesktopIpcServices } from "./in-memory-desktop-ipc-services";
 import { CAPTURE_PCM_CHANNEL, parseCapturePcmFramePayload } from "../../runtime/asr/capture-ipc";
 import { invokeValidators } from "./validators";
+import { destroyCaptureWindow, ensureCaptureWindow } from "../windows/capture-window-runtime";
 
 function registerHandler<K extends DesktopCommandName>(
   commandName: K,
@@ -25,10 +28,20 @@ function registerHandler<K extends DesktopCommandName>(
 export function registerIpc(services: DesktopIpcServices = getDefaultDesktopIpcServices()): void {
   registerHandler(DesktopCommand.StartListening, async () => {
     await services.session.startListening();
+    try {
+      ensureCaptureWindow();
+    } catch (error) {
+      await services.session.stopListening().catch(() => undefined);
+      throw error;
+    }
   });
 
   registerHandler(DesktopCommand.StopListening, async () => {
-    await services.session.stopListening();
+    try {
+      await services.session.stopListening();
+    } finally {
+      destroyCaptureWindow();
+    }
   });
 
   registerHandler(DesktopCommand.GetRuntimeSnapshot, () => services.runtime.getSnapshot());
@@ -72,6 +85,30 @@ export function registerIpc(services: DesktopIpcServices = getDefaultDesktopIpcS
       return;
     }
 
-    void services.session.handleCapturePcmFrame(parsed).catch(() => undefined);
+    void services.session.handleCapturePcmFrame(parsed).catch((error) => {
+      const { code, message } = toRuntimeErrorPayload(error);
+      services.runtime.publishError(code, message);
+    });
   });
+}
+
+function toRuntimeErrorPayload(error: unknown): {
+  code: DesktopErrorCode;
+  message: string;
+} {
+  const message = error instanceof Error ? error.message : "ASR capture processing failed";
+  const candidateCode =
+    error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : null;
+
+  if (typeof candidateCode === "string" && isDesktopErrorCode(candidateCode)) {
+    return {
+      code: candidateCode,
+      message
+    };
+  }
+
+  return {
+    code: "ASR_RECOGNITION_FAILED",
+    message
+  };
 }

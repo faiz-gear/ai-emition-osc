@@ -7,8 +7,10 @@ import { createCaptureBridge } from "../../../preload/desktop-api";
 import type { WhisperRunner } from "../../../runtime/asr/asr-worker";
 import { CAPTURE_PCM_CHANNEL } from "../../../runtime/asr/capture-ipc";
 
-const { browserWindowGetAllWindowsMock, handleMock, ipcMainOnMock } = vi.hoisted(() => ({
+const { browserWindowGetAllWindowsMock, destroyCaptureWindowMock, ensureCaptureWindowMock, handleMock, ipcMainOnMock } = vi.hoisted(() => ({
   browserWindowGetAllWindowsMock: vi.fn(() => []),
+  destroyCaptureWindowMock: vi.fn(),
+  ensureCaptureWindowMock: vi.fn(),
   handleMock: vi.fn(),
   ipcMainOnMock: vi.fn()
 }));
@@ -21,6 +23,11 @@ vi.mock("electron", () => ({
   BrowserWindow: {
     getAllWindows: browserWindowGetAllWindowsMock
   }
+}));
+
+vi.mock("../../../main/windows/capture-window-runtime", () => ({
+  destroyCaptureWindow: destroyCaptureWindowMock,
+  ensureCaptureWindow: ensureCaptureWindowMock
 }));
 
 function createRunnerStub(output = "hello world"): WhisperRunner {

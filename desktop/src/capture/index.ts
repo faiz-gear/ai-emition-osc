@@ -1,4 +1,5 @@
 import { createAudioWorkletBridge } from "./audio-worklet-bridge";
+import { requestCaptureStream } from "./request-capture-stream";
 
 type CaptureBridge = {
   sendPcmFrame(frame: {
@@ -17,14 +18,7 @@ const SEGMENT_DURATION_SECONDS = 2;
 
 async function bootCaptureRenderer(): Promise<void> {
   const captureBridge = resolveCaptureBridge();
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount: 1,
-      echoCancellation: true,
-      noiseSuppression: true
-    },
-    video: false
-  });
+  const stream = await requestCaptureStream();
 
   const audioContext = new AudioContext({ sampleRate: 16_000 });
   const source = audioContext.createMediaStreamSource(stream);

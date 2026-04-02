@@ -1,5 +1,6 @@
 import type {
   AsrModelCatalogItem,
+  DesktopErrorCode,
   InstalledAsrModel,
   ProviderSummary,
   RecognitionStrategy,
@@ -17,6 +18,7 @@ type InMemoryRuntimeState = {
   installedModels: InstalledAsrModel[];
   providers: ProviderSummary[];
   utterances: Utterance[];
+  errorsTotal: number;
 };
 
 const asrCatalog: AsrModelCatalogItem[] = listAsrModelCatalog().map((entry) => ({
@@ -37,7 +39,7 @@ function createSnapshot(state: InMemoryRuntimeState): RuntimeSnapshot {
       ws_clients: 0,
       utterances_total: state.utterances.length,
       emotion_total: 0,
-      errors_total: 0
+      errors_total: state.errorsTotal
     },
     utterances: state.utterances.map((utterance) => ({ ...utterance }))
   };
@@ -56,7 +58,8 @@ export function createInMemoryDesktopIpcServices(
     recognitionStrategy: { mode: "auto" },
     installedModels: [],
     providers: [],
-    utterances: []
+    utterances: [],
+    errorsTotal: 0
   };
   const asrWorker = createAsrWorker({
     modelStore: {
@@ -129,6 +132,13 @@ export function createInMemoryDesktopIpcServices(
     runtime: {
       async getSnapshot() {
         return createSnapshot(state);
+      },
+      publishError(code: DesktopErrorCode, message: string) {
+        state.errorsTotal += 1;
+        runtimeEventBus.publish({
+          type: "runtime:error",
+          payload: { code, message }
+        });
       },
       subscribe(listener) {
         return runtimeEventBus.subscribe(listener);
