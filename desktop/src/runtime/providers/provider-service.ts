@@ -111,16 +111,22 @@ export class ProviderService {
 
   public async createProvider(input: CreateProviderRequest): Promise<ProviderSummary> {
     const normalized = normalizeProviderInput(input);
-    const stored = await this.options.repository.create({
-      ...encryptSecrets(this.options.crypto, normalized),
-      name: normalized.name,
-      provider_type: normalized.provider_type,
-      provider_key: normalized.provider_key,
-      model: normalized.model,
-      base_url: normalized.base_url,
-      temperature: normalized.temperature,
-      is_active: false
-    } satisfies StoredProviderWrite);
+    let stored: StoredProviderRecord;
+
+    try {
+      stored = await this.options.repository.create({
+        ...encryptSecrets(this.options.crypto, normalized),
+        name: normalized.name,
+        provider_type: normalized.provider_type,
+        provider_key: normalized.provider_key,
+        model: normalized.model,
+        base_url: normalized.base_url,
+        temperature: normalized.temperature,
+        is_active: false
+      } satisfies StoredProviderWrite);
+    } catch (error) {
+      throw rethrowProviderRepositoryError(error);
+    }
 
     return this.summaryFromPlain(stored, {
       apiKey: normalized.api_key,
@@ -146,14 +152,16 @@ export class ProviderService {
 
     const current = this.decryptSecrets(existing);
     const normalized = normalizeProviderInput({
-      name: patch.name ?? existing.name,
+      name: hasOwn(patch, "name") ? patch.name ?? "" : existing.name,
       provider_type: existing.provider_type,
-      provider_key: patch.provider_key ?? existing.provider_key,
-      model: patch.model ?? existing.model,
-      base_url: patch.base_url ?? existing.base_url,
-      temperature: patch.temperature ?? existing.temperature,
-      api_key: patch.api_key ?? current.apiKey,
-      headers: patch.headers ?? current.headers
+      provider_key: hasOwn(patch, "provider_key") ? patch.provider_key ?? null : existing.provider_key,
+      model: hasOwn(patch, "model") ? patch.model ?? "" : existing.model,
+      base_url: hasOwn(patch, "base_url") ? patch.base_url ?? null : existing.base_url,
+      temperature: hasOwn(patch, "temperature")
+        ? patch.temperature ?? null
+        : existing.temperature,
+      api_key: hasOwn(patch, "api_key") ? patch.api_key ?? null : current.apiKey,
+      headers: hasOwn(patch, "headers") ? patch.headers ?? null : current.headers
     });
 
     const updatePatch: StoredProviderPatch = {};
@@ -331,7 +339,7 @@ export class ProviderService {
       is_active: record.is_active,
       updated_at: record.updated_at,
       has_api_key: decrypted.apiKey !== null,
-      headers_keys: decrypted.headers ? Object.keys(decrypted.headers) : [],
+      headers_keys: decrypted.headers ? Object.keys(decrypted.headers).sort() : [],
       status: "ok",
       error_code: null,
       error_message: null
@@ -367,21 +375,65 @@ function normalizeProviderInput(input: Partial<CreateProviderRequest> & {
       "Provider model must not be empty"
     );
   }
+  if (input.temperature !== null && input.temperature !== undefined) {
+    if (!Number.isFinite(input.temperature) || input.temperature < 0 || input.temperature > 2) {
+      throw new ProviderServiceError(
+        "PROVIDER_VALIDATION_FAILED",
+        "temperature must be between 0 and 2"
+      );
+    }
+  }
 
-  const provider_key =
+  let provider_key =
     typeof input.provider_key === "string" && input.provider_key.trim() !== ""
       ? input.provider_key.trim()
       : null;
-  const base_url =
+  let base_url =
     typeof input.base_url === "string" && input.base_url.trim() !== ""
       ? input.base_url.trim()
       : null;
-  const api_key =
+  let api_key =
     typeof input.api_key === "string" && input.api_key.trim() !== ""
       ? input.api_key.trim()
       : null;
-  const headers =
+  let headers =
     input.headers && Object.keys(input.headers).length > 0 ? sanitizeHeaders(input.headers) : null;
+
+  switch (input.provider_type) {
+    case "ollama":
+      provider_key = null;
+      api_key = null;
+      headers = null;
+      break;
+    case "openai":
+      provider_key = null;
+      if (!api_key) {
+        throw new ProviderServiceError(
+          "PROVIDER_VALIDATION_FAILED",
+          "openai provider requires api_key"
+        );
+      }
+      break;
+    case "openai_compatible":
+      if (!provider_key) {
+        throw new ProviderServiceError(
+          "PROVIDER_VALIDATION_FAILED",
+          "openai_compatible provider requires provider_key"
+        );
+      }
+      if (!base_url) {
+        throw new ProviderServiceError(
+          "PROVIDER_VALIDATION_FAILED",
+          "openai_compatible provider requires base_url"
+        );
+      }
+      break;
+    default:
+      throw new ProviderServiceError(
+        "PROVIDER_VALIDATION_FAILED",
+        "unsupported provider_type"
+      );
+  }
 
   return {
     name,
@@ -400,6 +452,7 @@ function sanitizeHeaders(headers: Record<string, string>): Record<string, string
     Object.entries(headers)
       .map(([key, value]) => [key.trim(), value.trim()] as const)
       .filter(([key, value]) => key !== "" && value !== "")
+      .sort(([left], [right]) => left.localeCompare(right))
   );
 }
 
@@ -450,4 +503,11 @@ function rethrowProviderRepositoryError(error: unknown): ProviderServiceError {
     {},
     { cause: error instanceof Error ? error : undefined }
   );
+}
+
+function hasOwn<T extends object, K extends PropertyKey>(
+  value: T,
+  key: K
+): value is T & Record<K, unknown> {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }

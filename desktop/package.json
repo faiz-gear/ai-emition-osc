@@ -11,11 +11,18 @@
   },
   "dependencies": {
     "@ai-emotion/contracts": "file:../packages/contracts",
+    "@langchain/ollama": "^1.2.6",
+    "@langchain/openai": "^1.4.1",
+    "better-sqlite3": "^12.8.0",
     "electron": "^31.7.7",
     "electron-vite": "^2.3.0",
-    "vitest": "^2.1.0"
+    "node-osc": "^11.3.0",
+    "openai": "^6.33.0",
+    "vitest": "^2.1.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.11.30"
   }
 }

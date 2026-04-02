@@ -112,7 +112,7 @@ export function extractFirstJsonObject(text: string): Record<string, unknown> | 
     if (text[index] !== "{") {
       continue;
     }
-    const candidate = safeParseObject(text.slice(index));
+    const candidate = rawDecodeObject(text, index);
     if (candidate) {
       return candidate;
     }
@@ -165,6 +165,49 @@ function safeParseObject(text: string | undefined): Record<string, unknown> | nu
   } catch {
     return null;
   }
+}
+
+function rawDecodeObject(text: string, startIndex: number): Record<string, unknown> | null {
+  let depth = 0;
+  let inString = false;
+  let escaping = false;
+
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (escaping) {
+      escaping = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return safeParseObject(text.slice(startIndex, index + 1));
+      }
+    }
+  }
+
+  return null;
 }
 
 function deriveDominantEmotion(dimensions: EmotionDimensions): string {

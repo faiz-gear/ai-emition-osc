@@ -27,12 +27,17 @@ export class EmotionWorker {
 
   public async stop(): Promise<void> {
     this.running = false;
+    this.options.queue.close();
     await this.loopPromise;
   }
 
   private async runLoop(): Promise<void> {
     while (this.running) {
       const task = await this.options.queue.get();
+      if (!task) {
+        return;
+      }
+
       try {
         const result = await this.options.service.analyzeText(task.text);
         this.options.osc.sendEmotion(result.dimensions);
