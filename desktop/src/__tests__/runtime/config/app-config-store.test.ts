@@ -1,8 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { beforeEach, describe, expect, expectTypeOf, test } from "vitest";
-import type { RecognitionStrategy } from "@ai-emotion/contracts";
+import { beforeEach, describe, expect, test } from "vitest";
 import { createAppConfigStore } from "../../../runtime/config/app-config-store";
 
 type TestElectronApp = {
@@ -76,12 +75,17 @@ describe("app config store", () => {
     };
     const store = createAppConfigStore({ app: fakeApp });
 
-    await expect(store.getRecognitionStrategy()).resolves.toEqual({ mode: "auto" });
+    await expect(store.read()).resolves.toMatchObject({
+      asr: {
+        languageMode: "auto",
+        fixedLanguage: null
+      }
+    });
 
     await rm(sandboxRoot, { recursive: true, force: true });
   });
 
-  test("strategy updates are explicit store operations and listening guard is service-owned", async () => {
+  test("switching strategy while listening is rejected by service guard, not store mutation rules", async () => {
     const fakeApp: TestElectronApp = {
       getPath(name) {
         return name === "appData" ? appDataPath : userDataPath;
@@ -92,17 +96,45 @@ describe("app config store", () => {
     };
     const store = createAppConfigStore({ app: fakeApp });
 
-    expectTypeOf(store.updateRecognitionStrategy).parameters.toEqualTypeOf<[RecognitionStrategy]>();
+    const strategyService = createGuardedStrategyService(store);
+    strategyService.listening = true;
 
-    const snapshot = await store.read();
-    snapshot.asr.languageMode = "fixed";
-    snapshot.asr.fixedLanguage = "en";
+    await expect(strategyService.setFixedLanguage("en")).rejects.toThrow(/listening/i);
 
-    await expect(store.getRecognitionStrategy()).resolves.toEqual({ mode: "auto" });
-    await expect(
-      store.updateRecognitionStrategy({ mode: "fixed", fixedLanguage: "en" })
-    ).resolves.toEqual({ mode: "fixed", fixedLanguage: "en" });
+    await expect(store.read()).resolves.toMatchObject({
+      asr: {
+        languageMode: "auto",
+        fixedLanguage: null
+      }
+    });
+
+    strategyService.listening = false;
+    await strategyService.setFixedLanguage("en");
+
+    await expect(store.read()).resolves.toMatchObject({
+      asr: {
+        languageMode: "fixed",
+        fixedLanguage: "en"
+      }
+    });
 
     await rm(sandboxRoot, { recursive: true, force: true });
   });
 });
+
+function createGuardedStrategyService(store: ReturnType<typeof createAppConfigStore>) {
+  return {
+    listening: false,
+    async setFixedLanguage(language: "zh" | "en") {
+      if (this.listening) {
+        throw new Error("cannot switch strategy while listening");
+      }
+
+      await store.updateAsr((current) => ({
+        ...current,
+        languageMode: "fixed",
+        fixedLanguage: language
+      }));
+    }
+  };
+}

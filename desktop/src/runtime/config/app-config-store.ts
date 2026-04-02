@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { app as electronApp } from "electron";
-import type { InstalledAsrModel, RecognitionStrategy } from "@ai-emotion/contracts";
+import type { InstalledAsrModel } from "@ai-emotion/contracts";
 
 export type AppConfig = {
   asr: {
@@ -44,8 +44,6 @@ export type AppConfigStore = {
   updateOsc(
     updater: (current: AppConfig["osc"]) => AppConfig["osc"]
   ): Promise<AppConfig["osc"]>;
-  getRecognitionStrategy(): Promise<RecognitionStrategy>;
-  updateRecognitionStrategy(input: RecognitionStrategy): Promise<RecognitionStrategy>;
 };
 
 const defaultConfig: AppConfig = {
@@ -124,35 +122,6 @@ export function createAppConfigStore(options: CreateAppConfigStoreOptions = {}):
         osc: updater(current.osc)
       }));
       return next.osc;
-    },
-    async getRecognitionStrategy() {
-      const config = await readConfig();
-      return config.asr.languageMode === "fixed" && config.asr.fixedLanguage
-        ? { mode: "fixed", fixedLanguage: config.asr.fixedLanguage }
-        : { mode: "auto" };
-    },
-    async updateRecognitionStrategy(input) {
-      const asr = await this.updateAsr((current) => {
-        if (input.mode === "auto") {
-          return {
-            ...current,
-            languageMode: "auto",
-            fixedLanguage: null
-          };
-        }
-
-        return {
-          ...current,
-          languageMode: "fixed",
-          fixedLanguage: input.fixedLanguage
-        };
-      });
-
-      if (asr.languageMode === "fixed" && asr.fixedLanguage) {
-        return { mode: "fixed", fixedLanguage: asr.fixedLanguage };
-      }
-
-      return { mode: "auto" };
     }
   };
 }
