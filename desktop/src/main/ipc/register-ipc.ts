@@ -36,7 +36,10 @@ export function registerIpc(services: DesktopIpcServices = getDefaultDesktopIpcS
       await ensureCaptureWindow();
       await services.session.startListening();
     } catch (error) {
-      await services.session.stopListening().catch(() => undefined);
+      const snapshot = await services.runtime.getSnapshot().catch(() => null);
+      if (snapshot?.status.listening) {
+        await services.session.stopListening().catch(() => undefined);
+      }
       destroyCaptureWindow();
       const { code, message } = toRuntimeErrorPayload(error);
       services.runtime.publishError(code, message);

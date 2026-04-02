@@ -204,6 +204,12 @@ describe("registerIpc", () => {
           event.type === "session:status" && event.payload.listening === true
       )
     ).toBe(false);
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          event.type === "session:status" && event.payload.listening === false
+      )
+    ).toBe(false);
     await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
       status: { listening: false }
     });

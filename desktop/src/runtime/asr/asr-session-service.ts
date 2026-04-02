@@ -115,6 +115,7 @@ export function createAsrSessionService(
         if (phase === "starting") {
           phase = asrWorker.isListening() ? "listening" : "idle";
         }
+        cancelPendingStart = false;
       });
 
       await transition;
@@ -158,6 +159,12 @@ export function createAsrSessionService(
       await captureSource.dispatch(frame);
     },
     async switchModel(modelId) {
+      if (phase !== "idle") {
+        throw new AsrWorkerError(
+          "ASR_MODEL_SWITCH_BLOCKED_WHILE_LISTENING",
+          "Model switching is disabled while listening"
+        );
+      }
       await asrWorker.switchModel(modelId);
     },
     async updateRecognitionStrategy(input) {

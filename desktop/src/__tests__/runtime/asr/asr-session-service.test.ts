@@ -267,6 +267,31 @@ describe("task-9 asr session orchestration", () => {
     });
   });
 
+  test("switching model during a slow start is blocked", async () => {
+    const loadModel = createDeferred<void>();
+    const runner: WhisperRunner = {
+      loadModel: vi.fn(() => loadModel.promise),
+      transcribe: vi.fn(async () => "transcript"),
+      reset: vi.fn()
+    };
+    const services = createInMemoryDesktopIpcServices({ runner });
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-small" });
+    const startPromise = invokeValidated(DesktopCommand.StartListening);
+    await Promise.resolve();
+
+    await expect(
+      invokeValidated(DesktopCommand.ActivateAsrModel, { modelId: "whisper-small" })
+    ).rejects.toMatchObject({
+      code: "ASR_MODEL_SWITCH_BLOCKED_WHILE_LISTENING"
+    });
+
+    loadModel.resolve();
+    await startPromise;
+  });
+
   test("updating recognition strategy while listening is blocked", async () => {
     const services = createInMemoryDesktopIpcServices({ runner: createRunnerStub() });
     registerIpc(services);
@@ -314,6 +339,33 @@ describe("task-9 asr session orchestration", () => {
     ).toBe(false);
     await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
       status: { listening: false }
+    });
+  });
+
+  test("failed canceled start does not poison the next start attempt", async () => {
+    const firstLoadModel = createDeferred<void>();
+    const runner: WhisperRunner = {
+      loadModel: vi
+        .fn()
+        .mockImplementationOnce(() => firstLoadModel.promise)
+        .mockResolvedValueOnce(undefined),
+      transcribe: vi.fn(async () => "transcript"),
+      reset: vi.fn()
+    };
+    const services = createInMemoryDesktopIpcServices({ runner });
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+    const firstStart = invokeValidated(DesktopCommand.StartListening);
+    await Promise.resolve();
+    const stopPromise = invokeValidated(DesktopCommand.StopListening);
+
+    firstLoadModel.reject(new Error("load failed"));
+    await Promise.allSettled([firstStart, stopPromise]);
+
+    await expect(invokeValidated(DesktopCommand.StartListening)).resolves.toBeUndefined();
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: true }
     });
   });
 
