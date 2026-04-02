@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, open, readdir, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
@@ -21,9 +21,12 @@ describe("download manager", () => {
   const modelPayload = Buffer.from("fake-whisper-model-binary", "utf8");
   let server: Server;
   let baseUrl = "";
+  let requestCount = 0;
 
   beforeEach(async () => {
+    requestCount = 0;
     server = createServer((request, response) => {
+      requestCount += 1;
       if (request.url === "/tiny.bin" || request.url === "/small.bin") {
         response.statusCode = 200;
         response.setHeader("content-length", String(modelPayload.byteLength));
@@ -58,13 +61,16 @@ describe("download manager", () => {
     );
   });
 
-  function createRuntimeEventBusHarness() {
+  function createRuntimeEventBusHarness(options: { throwOnPublish?: boolean } = {}) {
     const listeners = new Set<(event: RuntimeEvent) => void>();
 
     return {
       publish(event: RuntimeEvent) {
         for (const listener of listeners) {
           listener(event);
+        }
+        if (options.throwOnPublish) {
+          throw new Error("publisher failed");
         }
       },
       subscribe(listener: (event: RuntimeEvent) => void) {
@@ -76,7 +82,12 @@ describe("download manager", () => {
     };
   }
 
-  async function createHarness() {
+  async function createHarness(
+    options: {
+      throwOnPublish?: boolean;
+      openImpl?: typeof open;
+    } = {}
+  ) {
     const sandboxPath = await mkdtemp(join(tmpdir(), "asr-download-manager-test-"));
     sandboxes.push(sandboxPath);
     const appDataPath = join(sandboxPath, "app-data");
@@ -93,7 +104,9 @@ describe("download manager", () => {
 
     const appConfigStore = createAppConfigStore({ app: fakeApp });
     const modelStore = createModelStore({ appConfigStore });
-    const runtimeBus = createRuntimeEventBusHarness();
+    const runtimeBus = createRuntimeEventBusHarness({
+      throwOnPublish: options.throwOnPublish
+    });
     const runtimeEvents: RuntimeEvent[] = [];
     runtimeBus.subscribe((event) => {
       runtimeEvents.push(event);
@@ -122,7 +135,8 @@ describe("download manager", () => {
     const downloadManager = createDownloadManager({
       catalog,
       modelStore,
-      runtimeEventBus: runtimeBus
+      runtimeEventBus: runtimeBus,
+      openImpl: options.openImpl
     });
 
     return {
@@ -191,5 +205,54 @@ describe("download manager", () => {
     expect(modelFiles.some((fileName) => fileName.includes("whisper-tiny"))).toBe(true);
     expect(modelFiles.some((fileName) => fileName.includes("whisper-small"))).toBe(false);
     expect(modelFiles.some((fileName) => fileName.includes("partial"))).toBe(false);
+  });
+
+  test("deduplicates concurrent downloads for the same model", async () => {
+    const { downloadManager, modelStore } = await createHarness();
+
+    await Promise.all([
+      downloadManager.downloadModel("whisper-tiny"),
+      downloadManager.downloadModel("whisper-tiny")
+    ]);
+
+    expect(requestCount).toBe(1);
+    await expect(modelStore.listInstalledModels()).resolves.toHaveLength(1);
+  });
+
+  test("ignores runtime bus publication failures after marking a model ready", async () => {
+    const { downloadManager, modelStore } = await createHarness({
+      throwOnPublish: true
+    });
+
+    await expect(downloadManager.downloadModel("whisper-tiny")).resolves.toBeUndefined();
+    await expect(modelStore.listInstalledModels()).resolves.toMatchObject([
+      { modelId: "whisper-tiny", active: true }
+    ]);
+  });
+
+  test("handles short writes without truncating the downloaded file", async () => {
+    const { appConfigStore, downloadManager } = await createHarness({
+      openImpl: async (path, flags) => {
+        const handle = await open(path, flags);
+        return {
+          async write(
+            buffer: Buffer,
+            offset = 0,
+            length = buffer.byteLength - offset
+          ) {
+            const nextLength = Math.max(1, Math.floor(length / 2));
+            return handle.write(buffer, offset, nextLength);
+          },
+          close() {
+            return handle.close();
+          }
+        };
+      }
+    });
+
+    await expect(downloadManager.downloadModel("whisper-tiny")).resolves.toBeUndefined();
+
+    const modelFiles = await readdir(appConfigStore.getPaths().asrModelRootPath);
+    expect(modelFiles).toContain("whisper-tiny.bin");
   });
 });
