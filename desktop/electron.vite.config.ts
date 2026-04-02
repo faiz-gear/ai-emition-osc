@@ -12,5 +12,13 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()]
+  },
+  renderer: {
+    root: __dirname,
+    build: {
+      rollupOptions: {
+        input: resolve(__dirname, "capture.html")
+      }
+    }
   }
 });

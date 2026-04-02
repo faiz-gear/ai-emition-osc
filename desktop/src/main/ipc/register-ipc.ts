@@ -7,6 +7,7 @@ import {
 } from "@ai-emotion/contracts";
 import type { DesktopIpcServices } from "./desktop-ipc-services";
 import { getDefaultDesktopIpcServices } from "./in-memory-desktop-ipc-services";
+import { CAPTURE_PCM_CHANNEL, parseCapturePcmFramePayload } from "../../runtime/asr/capture-ipc";
 import { invokeValidators } from "./validators";
 
 function registerHandler<K extends DesktopCommandName>(
@@ -63,5 +64,14 @@ export function registerIpc(services: DesktopIpcServices = getDefaultDesktopIpcS
   );
   registerHandler(DesktopCommand.ActivateProvider, async ({ providerId }) => {
     await services.providers.activate(providerId);
+  });
+
+  electron.ipcMain?.on?.(CAPTURE_PCM_CHANNEL, (_event, payload) => {
+    const parsed = parseCapturePcmFramePayload(payload);
+    if (!parsed) {
+      return;
+    }
+
+    void services.session.handleCapturePcmFrame(parsed).catch(() => undefined);
   });
 }

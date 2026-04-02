@@ -1,27 +1,27 @@
-import { describe, expect, test, vi } from "vitest";
-import type { RecognitionStrategy } from "@ai-emotion/contracts";
-import { AsrWorkerError, createAsrWorker, type WhisperRunner } from "../../../runtime/asr/asr-worker";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { DesktopCommand, type RuntimeEvent } from "@ai-emotion/contracts";
+import { createAudioWorkletBridge } from "../../../capture/audio-worklet-bridge";
+import { registerIpc } from "../../../main/ipc/register-ipc";
+import { createInMemoryDesktopIpcServices } from "../../../main/ipc/in-memory-desktop-ipc-services";
+import { createCaptureBridge } from "../../../preload/desktop-api";
+import type { WhisperRunner } from "../../../runtime/asr/asr-worker";
+import { CAPTURE_PCM_CHANNEL } from "../../../runtime/asr/capture-ipc";
 
-function createModelStoreStub(input?: {
-  activeModelId?: string | null;
-  installedModels?: { modelId: string; active: boolean }[];
-}) {
-  const activeModelId = input?.activeModelId ?? null;
-  const installedModels =
-    input?.installedModels?.map((model) => ({
-      modelId: model.modelId,
-      installedAt: "2026-04-01T00:00:00.000Z",
-      sizeBytes: 123,
-      active: model.active
-    })) ?? [];
+const { browserWindowGetAllWindowsMock, handleMock, ipcMainOnMock } = vi.hoisted(() => ({
+  browserWindowGetAllWindowsMock: vi.fn(() => []),
+  handleMock: vi.fn(),
+  ipcMainOnMock: vi.fn()
+}));
 
-  return {
-    getModelsRootPath: vi.fn(() => "/tmp/asr-models"),
-    listInstalledModels: vi.fn(async () => installedModels),
-    getActiveModelId: vi.fn(async () => activeModelId),
-    activateModel: vi.fn(async () => undefined)
-  };
-}
+vi.mock("electron", () => ({
+  ipcMain: {
+    handle: handleMock,
+    on: ipcMainOnMock
+  },
+  BrowserWindow: {
+    getAllWindows: browserWindowGetAllWindowsMock
+  }
+}));
 
 function createRunnerStub(output = "hello world"): WhisperRunner {
   return {
@@ -31,95 +31,108 @@ function createRunnerStub(output = "hello world"): WhisperRunner {
   };
 }
 
-describe("asr worker task-8 behavior", () => {
-  test("listening start is blocked when no ready model exists", async () => {
-    const modelStore = createModelStoreStub({
-      activeModelId: null,
-      installedModels: []
-    });
-    const worker = createAsrWorker({
-      modelStore,
-      runner: createRunnerStub()
-    });
+async function invokeValidated(command: DesktopCommand, payload?: unknown): Promise<unknown> {
+  const registration = handleMock.mock.calls.find(([channel]) => channel === command);
+  expect(registration, `Missing registration for ${command}`).toBeTruthy();
+  const [, handler] = registration as [DesktopCommand, (_event: unknown, input?: unknown) => Promise<unknown>];
+  return handler({} as unknown, payload);
+}
 
-    await expect(worker.startListening()).rejects.toMatchObject({
+function getCaptureListener(): (event: unknown, payload: unknown) => void {
+  const captureRegistration = ipcMainOnMock.mock.calls.find(([channel]) => channel === CAPTURE_PCM_CHANNEL);
+  expect(captureRegistration, "Missing capture IPC listener registration").toBeTruthy();
+  const [, listener] = captureRegistration as [string, (event: unknown, payload: unknown) => void];
+  return listener;
+}
+
+describe("task-8 capture-to-asr flow", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    browserWindowGetAllWindowsMock.mockReturnValue([]);
+  });
+
+  test("listening start is blocked when no ready model exists", async () => {
+    const services = createInMemoryDesktopIpcServices({ runner: createRunnerStub() });
+    registerIpc(services);
+
+    await expect(invokeValidated(DesktopCommand.StartListening)).rejects.toMatchObject({
       code: "ASR_MODEL_NOT_INSTALLED"
     });
   });
 
   test("recognition strategy rejects unsupported fixed language", async () => {
-    const modelStore = createModelStoreStub();
-    const worker = createAsrWorker({
-      modelStore,
-      runner: createRunnerStub()
-    });
+    const services = createInMemoryDesktopIpcServices({ runner: createRunnerStub() });
+    registerIpc(services);
 
     await expect(
-      worker.updateRecognitionStrategy({
+      invokeValidated(DesktopCommand.UpdateRecognitionStrategy, {
         mode: "fixed",
         fixedLanguage: "ja"
-      } as unknown as RecognitionStrategy)
-    ).rejects.toBeInstanceOf(AsrWorkerError);
-
-    await expect(
-      worker.updateRecognitionStrategy({
-        mode: "fixed",
-        fixedLanguage: "ja"
-      } as unknown as RecognitionStrategy)
-    ).rejects.toMatchObject({
-      code: "ASR_INVALID_RECOGNITION_STRATEGY"
-    });
+      })
+    ).rejects.toThrow(/invalid/i);
   });
 
-  test("pcm frames from capture bridge produce one finalized transcript event when segment closes", async () => {
-    const finalizedListener = vi.fn();
-    const modelStore = createModelStoreStub({
-      activeModelId: "whisper-base",
-      installedModels: [{ modelId: "whisper-base", active: true }]
+  test("pcm frames from capture bridge produce one finalized transcript event when a segment closes", async () => {
+    const services = createInMemoryDesktopIpcServices({ runner: createRunnerStub("final transcript") });
+    const runtimeEvents: RuntimeEvent[] = [];
+    const unsubscribe = services.runtime.subscribe((event) => {
+      runtimeEvents.push(event);
     });
-    const worker = createAsrWorker({
-      modelStore,
-      runner: createRunnerStub("final transcript"),
-      onFinalTranscript: finalizedListener
-    });
+    registerIpc(services);
 
-    await worker.startListening();
-    await worker.handlePcmFrame({
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+    await invokeValidated(DesktopCommand.StartListening);
+
+    const captureListener = getCaptureListener();
+    const captureBridge = createCaptureBridge({
+      postMessage(channel, message) {
+        expect(channel).toBe(CAPTURE_PCM_CHANNEL);
+        captureListener({ sender: null }, message);
+      }
+    });
+    const workletBridge = createAudioWorkletBridge({ captureBridge });
+
+    workletBridge.forward({
       segmentId: "segment-1",
-      samples: Float32Array.from([0.25, -0.1, 0.0]),
+      samples: Float32Array.from([0.25, -0.1, 0]),
       sampleRate: 16_000,
       isFinal: false
     });
-    await worker.handlePcmFrame({
+    workletBridge.forward({
       segmentId: "segment-1",
       samples: Float32Array.from([0.4, 0.1]),
       sampleRate: 16_000,
       isFinal: true
     });
 
-    expect(finalizedListener).toHaveBeenCalledTimes(1);
-    expect(finalizedListener).toHaveBeenCalledWith(
-      expect.objectContaining({
-        segmentId: "segment-1",
-        text: "final transcript",
-        isFinal: true
-      })
-    );
+    await vi.waitFor(() => {
+      const utteranceEvents = runtimeEvents.filter((event) => event.type === "runtime:utterance");
+      expect(utteranceEvents).toHaveLength(1);
+    });
+
+    const [utteranceEvent] = runtimeEvents.filter((event) => event.type === "runtime:utterance");
+    expect(utteranceEvent).toMatchObject({
+      type: "runtime:utterance",
+      payload: {
+        final_text: "final transcript",
+        emotion_status: "queued"
+      }
+    });
+
+    unsubscribe();
   });
 
   test("switching model while listening returns ASR_MODEL_SWITCH_BLOCKED_WHILE_LISTENING", async () => {
-    const modelStore = createModelStoreStub({
-      activeModelId: "whisper-base",
-      installedModels: [{ modelId: "whisper-base", active: true }]
-    });
-    const worker = createAsrWorker({
-      modelStore,
-      runner: createRunnerStub()
-    });
+    const services = createInMemoryDesktopIpcServices({ runner: createRunnerStub() });
+    registerIpc(services);
 
-    await worker.startListening();
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-small" });
+    await invokeValidated(DesktopCommand.StartListening);
 
-    await expect(worker.switchModel("whisper-small")).rejects.toMatchObject({
+    await expect(
+      invokeValidated(DesktopCommand.ActivateAsrModel, { modelId: "whisper-small" })
+    ).rejects.toMatchObject({
       code: "ASR_MODEL_SWITCH_BLOCKED_WHILE_LISTENING"
     });
   });

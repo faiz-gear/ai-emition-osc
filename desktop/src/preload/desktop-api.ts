@@ -14,15 +14,24 @@ import {
   type RuntimeEvent,
   type RuntimeSnapshot
 } from "@ai-emotion/contracts";
+import { CAPTURE_PCM_CHANNEL, type CapturePcmFramePayload } from "../runtime/asr/capture-ipc";
 
-type IpcRendererLike = Pick<typeof ipcRenderer, "invoke" | "on" | "off">;
+type DesktopIpcRendererLike = Pick<typeof ipcRenderer, "invoke" | "on" | "off">;
+type CaptureIpcRendererLike = Pick<typeof ipcRenderer, "postMessage">;
 export type { DesktopApi } from "@ai-emotion/contracts";
+export type CaptureBridgeApi = {
+  sendPcmFrame(frame: CapturePcmFramePayload): void;
+};
 
-function invoke<TResponse>(ipc: IpcRendererLike, commandName: string, payload?: unknown): Promise<TResponse> {
+function invoke<TResponse>(
+  ipc: DesktopIpcRendererLike,
+  commandName: string,
+  payload?: unknown
+): Promise<TResponse> {
   return ipc.invoke(commandName, payload) as Promise<TResponse>;
 }
 
-export function createDesktopApi(ipc: IpcRendererLike = ipcRenderer): DesktopApi {
+export function createDesktopApi(ipc: DesktopIpcRendererLike = ipcRenderer): DesktopApi {
   return {
     session: {
       startListening() {
@@ -90,6 +99,22 @@ export function createDesktopApi(ipc: IpcRendererLike = ipcRenderer): DesktopApi
       activate(providerId) {
         return invoke<void>(ipc, DesktopCommand.ActivateProvider, { providerId });
       }
+    }
+  };
+}
+
+export function createCaptureBridge(ipc: CaptureIpcRendererLike = ipcRenderer): CaptureBridgeApi {
+  return {
+    sendPcmFrame(frame) {
+      const samples = Float32Array.from(frame.samples);
+      ipc.postMessage(
+        CAPTURE_PCM_CHANNEL,
+        {
+          ...frame,
+          samples
+        },
+        [samples.buffer]
+      );
     }
   };
 }

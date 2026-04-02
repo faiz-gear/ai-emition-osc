@@ -1,4 +1,4 @@
-import { isRecognitionStrategy, type RecognitionStrategy } from "@ai-emotion/contracts";
+import { isRecognitionStrategy, type AsrErrorCode, type RecognitionStrategy } from "@ai-emotion/contracts";
 import { createWhisperRunner, type WhisperRunner } from "./whisper-runner";
 
 type InstalledModel = {
@@ -41,7 +41,7 @@ type SegmentBuffer = {
 };
 
 export class AsrWorkerError extends Error {
-  public constructor(public readonly code: string, message: string, options?: ErrorOptions) {
+  public constructor(public readonly code: AsrErrorCode, message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = "AsrWorkerError";
   }

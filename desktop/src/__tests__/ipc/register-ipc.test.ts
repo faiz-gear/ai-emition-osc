@@ -114,6 +114,14 @@ describe("registerIpc", () => {
     browserWindowGetAllWindowsMock.mockReturnValue([]);
   });
 
+  function createRunnerStub() {
+    return {
+      loadModel: vi.fn(async () => undefined),
+      transcribe: vi.fn(async () => ""),
+      reset: vi.fn()
+    };
+  }
+
   test("registers every renderer command exactly once", async () => {
     expect(Object.values(DesktopCommand).sort()).toEqual([...expectedCommandNames].sort());
 
@@ -170,9 +178,14 @@ describe("registerIpc", () => {
   });
 
   test("in-memory ipc services keep placeholder state isolated per instance", async () => {
-    const firstServices = createInMemoryDesktopIpcServices();
-    const secondServices = createInMemoryDesktopIpcServices();
+    const firstServices = createInMemoryDesktopIpcServices({
+      runner: createRunnerStub()
+    });
+    const secondServices = createInMemoryDesktopIpcServices({
+      runner: createRunnerStub()
+    });
 
+    await firstServices.asr.downloadModel("whisper-base");
     await firstServices.session.startListening();
 
     await expect(firstServices.runtime.getSnapshot()).resolves.toMatchObject({

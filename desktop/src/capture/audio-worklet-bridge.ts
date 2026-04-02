@@ -1,4 +1,4 @@
-export const CAPTURE_PCM_CHANNEL = "asr:capture-pcm-frame";
+import type { CapturePcmFramePayload } from "../runtime/asr/capture-ipc";
 
 export type CapturePcmFrame = {
   segmentId: string;
@@ -7,8 +7,8 @@ export type CapturePcmFrame = {
   isFinal: boolean;
 };
 
-type IpcRendererLike = {
-  postMessage(channel: string, message: unknown, transfer?: readonly MessagePort[] | readonly ArrayBuffer[]): void;
+type CaptureBridge = {
+  sendPcmFrame(frame: CapturePcmFramePayload): void;
 };
 
 export type AudioWorkletBridge = {
@@ -16,24 +16,17 @@ export type AudioWorkletBridge = {
 };
 
 export function createAudioWorkletBridge(options: {
-  ipcRenderer: IpcRendererLike;
-  channel?: string;
+  captureBridge: CaptureBridge;
 }): AudioWorkletBridge {
-  const channel = options.channel ?? CAPTURE_PCM_CHANNEL;
-
   return {
     forward(frame) {
       const normalized = normalizePcm(frame.samples);
-      options.ipcRenderer.postMessage(
-        channel,
-        {
-          segmentId: frame.segmentId,
-          sampleRate: frame.sampleRate,
-          isFinal: frame.isFinal,
-          samples: normalized
-        },
-        [normalized.buffer]
-      );
+      options.captureBridge.sendPcmFrame({
+        segmentId: frame.segmentId,
+        sampleRate: frame.sampleRate,
+        isFinal: frame.isFinal,
+        samples: normalized
+      });
     }
   };
 }

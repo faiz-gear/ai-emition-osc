@@ -3,8 +3,11 @@ import type {
   InstalledAsrModel,
   ProviderSummary,
   RecognitionStrategy,
-  RuntimeSnapshot
+  RuntimeSnapshot,
+  Utterance
 } from "@ai-emotion/contracts";
+import { createAsrWorker, AsrWorkerError, type WhisperRunner } from "../../runtime/asr/asr-worker";
+import { listAsrModelCatalog } from "../../runtime/asr/model-catalog";
 import { createRuntimeEventBus } from "./runtime-bus";
 import type { DesktopIpcServices } from "./desktop-ipc-services";
 
@@ -13,17 +16,16 @@ type InMemoryRuntimeState = {
   recognitionStrategy: RecognitionStrategy;
   installedModels: InstalledAsrModel[];
   providers: ProviderSummary[];
+  utterances: Utterance[];
 };
 
-const asrCatalog: AsrModelCatalogItem[] = [
-  {
-    modelId: "whisper-base",
-    name: "Whisper Base",
-    language: "multilingual",
-    sizeBytes: 146_000_000,
-    recommended: true
-  }
-];
+const asrCatalog: AsrModelCatalogItem[] = listAsrModelCatalog().map((entry) => ({
+  modelId: entry.modelId,
+  name: entry.name,
+  language: entry.language,
+  sizeBytes: entry.sizeBytes,
+  recommended: entry.recommended
+}));
 
 let defaultServices: DesktopIpcServices | undefined;
 
@@ -33,26 +35,79 @@ function createSnapshot(state: InMemoryRuntimeState): RuntimeSnapshot {
     metrics: {
       uptime_seconds: 0,
       ws_clients: 0,
-      utterances_total: 0,
+      utterances_total: state.utterances.length,
       emotion_total: 0,
       errors_total: 0
     },
-    utterances: []
+    utterances: state.utterances.map((utterance) => ({ ...utterance }))
   };
 }
 
-export function createInMemoryDesktopIpcServices(): DesktopIpcServices {
+export type CreateInMemoryDesktopIpcServicesOptions = {
+  runner?: WhisperRunner;
+};
+
+export function createInMemoryDesktopIpcServices(
+  options: CreateInMemoryDesktopIpcServicesOptions = {}
+): DesktopIpcServices {
   const runtimeEventBus = createRuntimeEventBus();
   const state: InMemoryRuntimeState = {
     listening: false,
     recognitionStrategy: { mode: "auto" },
     installedModels: [],
-    providers: []
+    providers: [],
+    utterances: []
   };
+  const asrWorker = createAsrWorker({
+    modelStore: {
+      getModelsRootPath() {
+        return "/tmp/asr-models";
+      },
+      async listInstalledModels() {
+        return state.installedModels.map((model) => ({ ...model }));
+      },
+      async getActiveModelId() {
+        return state.installedModels.find((model) => model.active)?.modelId ?? null;
+      },
+      async activateModel(modelId) {
+        if (!state.installedModels.some((model) => model.modelId === modelId)) {
+          throw new AsrWorkerError(
+            "ASR_MODEL_NOT_INSTALLED",
+            `Model ${modelId} is not installed`
+          );
+        }
+
+        state.installedModels = state.installedModels.map((model) => ({
+          ...model,
+          active: model.modelId === modelId
+        }));
+      }
+    },
+    runner: options.runner,
+    onFinalTranscript(input) {
+      const utterance: Utterance = {
+        id: input.segmentId,
+        started_at: new Date().toISOString(),
+        ended_at: new Date().toISOString(),
+        final_text: input.text,
+        partial_text: null,
+        emotion: null,
+        emotion_status: "queued",
+        latency_ms: null
+      };
+
+      state.utterances = [...state.utterances, utterance];
+      runtimeEventBus.publish({
+        type: "runtime:utterance",
+        payload: utterance
+      });
+    }
+  });
 
   return {
     session: {
       async startListening() {
+        await asrWorker.startListening();
         state.listening = true;
         runtimeEventBus.publish({
           type: "runtime:status",
@@ -60,11 +115,15 @@ export function createInMemoryDesktopIpcServices(): DesktopIpcServices {
         });
       },
       async stopListening() {
+        await asrWorker.stopListening();
         state.listening = false;
         runtimeEventBus.publish({
           type: "runtime:status",
           payload: { listening: false }
         });
+      },
+      async handleCapturePcmFrame(frame) {
+        await asrWorker.handlePcmFrame(frame);
       }
     },
     runtime: {
@@ -101,10 +160,7 @@ export function createInMemoryDesktopIpcServices(): DesktopIpcServices {
         }
       },
       async activateModel(modelId) {
-        state.installedModels = state.installedModels.map((item) => ({
-          ...item,
-          active: item.modelId === modelId
-        }));
+        await asrWorker.switchModel(modelId);
       },
       async deleteModel(modelId) {
         state.installedModels = state.installedModels.filter((item) => item.modelId !== modelId);
@@ -113,10 +169,10 @@ export function createInMemoryDesktopIpcServices(): DesktopIpcServices {
         return state.recognitionStrategy;
       },
       async updateRecognitionStrategy(input) {
-        state.recognitionStrategy = input;
+        state.recognitionStrategy = await asrWorker.updateRecognitionStrategy(input);
         runtimeEventBus.publish({
           type: "asr:recognition-strategy",
-          payload: input
+          payload: state.recognitionStrategy
         });
         return state.recognitionStrategy;
       }

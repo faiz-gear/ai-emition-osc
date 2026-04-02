@@ -21,7 +21,8 @@ export const AsrErrorCodes = [
   "ASR_ACTIVATION_FAILED",
   "ASR_RECOGNITION_FAILED",
   "ASR_INVALID_LANGUAGE",
-  "ASR_INVALID_RECOGNITION_STRATEGY"
+  "ASR_INVALID_RECOGNITION_STRATEGY",
+  "ASR_MODEL_SWITCH_BLOCKED_WHILE_LISTENING"
 ] as const;
 
 export type AsrErrorCode = (typeof AsrErrorCodes)[number];

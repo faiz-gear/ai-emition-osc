@@ -10,11 +10,13 @@ import type {
   RuntimeEvent,
   RuntimeSnapshot
 } from "@ai-emotion/contracts";
+import type { CapturePcmFramePayload } from "../../runtime/asr/capture-ipc";
 
 export type DesktopIpcServices = {
   session: {
     startListening(): Promise<void>;
     stopListening(): Promise<void>;
+    handleCapturePcmFrame(frame: CapturePcmFramePayload): Promise<void>;
   };
   runtime: {
     getSnapshot(): Promise<RuntimeSnapshot>;

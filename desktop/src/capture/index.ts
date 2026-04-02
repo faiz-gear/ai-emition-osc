@@ -1,17 +1,22 @@
 import { createAudioWorkletBridge } from "./audio-worklet-bridge";
 
-type IpcRendererLike = {
-  postMessage(channel: string, message: unknown, transfer?: readonly ArrayBuffer[]): void;
+type CaptureBridge = {
+  sendPcmFrame(frame: {
+    segmentId: string;
+    samples: Float32Array;
+    sampleRate: number;
+    isFinal: boolean;
+  }): void;
 };
 
 type CaptureWindowGlobals = Window & {
-  __captureIpcRenderer__?: IpcRendererLike;
+  captureBridge?: CaptureBridge;
 };
 
 const SEGMENT_DURATION_SECONDS = 2;
 
 async function bootCaptureRenderer(): Promise<void> {
-  const ipcRenderer = resolveIpcRenderer();
+  const captureBridge = resolveCaptureBridge();
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       channelCount: 1,
@@ -27,7 +32,7 @@ async function bootCaptureRenderer(): Promise<void> {
   const silentGain = audioContext.createGain();
   silentGain.gain.value = 0;
 
-  const bridge = createAudioWorkletBridge({ ipcRenderer });
+  const bridge = createAudioWorkletBridge({ captureBridge });
   let activeSegmentId = createSegmentId();
   let segmentSampleCount = 0;
   const maxSegmentSamples = Math.floor(audioContext.sampleRate * SEGMENT_DURATION_SECONDS);
@@ -59,10 +64,10 @@ async function bootCaptureRenderer(): Promise<void> {
   silentGain.connect(audioContext.destination);
 }
 
-function resolveIpcRenderer(): IpcRendererLike {
-  const candidate = (window as CaptureWindowGlobals).__captureIpcRenderer__;
-  if (!candidate?.postMessage) {
-    throw new Error("Capture bridge is unavailable: __captureIpcRenderer__ was not injected");
+function resolveCaptureBridge(): CaptureBridge {
+  const candidate = (window as CaptureWindowGlobals).captureBridge;
+  if (!candidate?.sendPcmFrame) {
+    throw new Error("Capture bridge is unavailable: preload captureBridge was not injected");
   }
   return candidate;
 }
