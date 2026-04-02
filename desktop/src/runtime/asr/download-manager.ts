@@ -1,23 +1,18 @@
 import { createHash } from "node:crypto";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { AsrErrorCode, RuntimeEvent } from "@ai-emotion/contracts";
+import type {
+  AsrErrorCode,
+  DownloadStatus,
+  DownloadStatusEvent,
+  RuntimeEvent
+} from "@ai-emotion/contracts";
 import { getAsrModelCatalogEntry, listAsrModelCatalog, type AsrModelCatalogEntry } from "./model-catalog";
 import type { ModelStore } from "./model-store";
 
-export type DownloadStatus = "queued" | "downloading" | "verifying" | "ready" | "failed";
-
-export type DownloadStatusEvent = {
-  type: "asr:download-status";
-  payload: {
-    modelId: string;
-    status: DownloadStatus;
-    errorCode?: AsrErrorCode;
-    message?: string;
-  };
+export type RuntimeEventPublisher = {
+  publish(event: RuntimeEvent): void;
 };
-
-export type DownloadManagerEvent = RuntimeEvent | DownloadStatusEvent;
 
 export class DownloadManagerError extends Error {
   public constructor(
@@ -39,7 +34,7 @@ export type CreateDownloadManagerOptions = {
   modelStore: ModelStore;
   catalog?: AsrModelCatalogEntry[];
   fetchImpl?: typeof fetch;
-  eventSink?: (event: DownloadManagerEvent) => void;
+  runtimeEventBus?: RuntimeEventPublisher;
 };
 
 export function createDownloadManager(options: CreateDownloadManagerOptions): DownloadManager {
@@ -50,7 +45,7 @@ export function createDownloadManager(options: CreateDownloadManagerOptions): Do
   return {
     async downloadModel(modelId: string) {
       const model = catalogById.get(modelId) ?? getAsrModelCatalogEntry(modelId);
-      const emitStatus = createStatusEmitter(modelId, options.eventSink);
+      const emitStatus = createStatusEmitter(modelId, options.runtimeEventBus);
 
       emitStatus("queued");
 
@@ -106,7 +101,7 @@ export function createDownloadManager(options: CreateDownloadManagerOptions): Do
             receivedBytes += chunk.byteLength;
             hash.update(chunk);
             await handle.write(chunk);
-            options.eventSink?.({
+            options.runtimeEventBus?.publish({
               type: "asr:download-progress",
               payload: {
                 modelId,
@@ -158,18 +153,22 @@ function mapDownloadError(error: unknown, modelId: string): DownloadManagerError
 
 function createStatusEmitter(
   modelId: string,
-  eventSink?: (event: DownloadManagerEvent) => void
+  runtimeEventBus?: RuntimeEventPublisher
 ): (status: DownloadStatus, error?: DownloadManagerError) => void {
   return (status, error) => {
-    eventSink?.({
-      type: "asr:download-status",
-      payload: {
-        modelId,
-        status,
-        errorCode: error?.code,
-        message: error?.message
-      }
-    });
+    const payload: DownloadStatusEvent = {
+      modelId,
+      status
+    };
+
+    if (error?.code) {
+      payload.errorCode = error.code;
+    }
+    if (error?.message) {
+      payload.message = error.message;
+    }
+
+    runtimeEventBus?.publish({ type: "asr:download-status", payload });
   };
 }
 

@@ -5,13 +5,10 @@ import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import type { RuntimeEvent } from "@ai-emotion/contracts";
 import { createAppConfigStore } from "../../../runtime/config/app-config-store";
 import { createModelStore } from "../../../runtime/asr/model-store";
-import {
-  createDownloadManager,
-  type DownloadManagerEvent,
-  type DownloadStatus
-} from "../../../runtime/asr/download-manager";
+import { createDownloadManager } from "../../../runtime/asr/download-manager";
 import type { AsrModelCatalogEntry } from "../../../runtime/asr/model-catalog";
 
 type TestElectronApp = {
@@ -61,6 +58,24 @@ describe("download manager", () => {
     );
   });
 
+  function createRuntimeEventBusHarness() {
+    const listeners = new Set<(event: RuntimeEvent) => void>();
+
+    return {
+      publish(event: RuntimeEvent) {
+        for (const listener of listeners) {
+          listener(event);
+        }
+      },
+      subscribe(listener: (event: RuntimeEvent) => void) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      }
+    };
+  }
+
   async function createHarness() {
     const sandboxPath = await mkdtemp(join(tmpdir(), "asr-download-manager-test-"));
     sandboxes.push(sandboxPath);
@@ -78,7 +93,11 @@ describe("download manager", () => {
 
     const appConfigStore = createAppConfigStore({ app: fakeApp });
     const modelStore = createModelStore({ appConfigStore });
-    const events: DownloadManagerEvent[] = [];
+    const runtimeBus = createRuntimeEventBusHarness();
+    const runtimeEvents: RuntimeEvent[] = [];
+    runtimeBus.subscribe((event) => {
+      runtimeEvents.push(event);
+    });
     const checksum = createHash("sha256").update(modelPayload).digest("hex");
     const catalog: AsrModelCatalogEntry[] = [
       {
@@ -103,54 +122,52 @@ describe("download manager", () => {
     const downloadManager = createDownloadManager({
       catalog,
       modelStore,
-      eventSink(event) {
-        events.push(event);
-      }
+      runtimeEventBus: runtimeBus
     });
 
     return {
       appConfigStore,
       modelStore,
       downloadManager,
-      events
+      runtimeEvents
     };
   }
 
   test("emits queued/downloading/verifying/ready and failed status transitions with progress", async () => {
-    const { downloadManager, events } = await createHarness();
+    const { downloadManager, runtimeEvents } = await createHarness();
 
     await downloadManager.downloadModel("whisper-tiny");
 
-    const successStatuses = events
-      .filter((event): event is Extract<DownloadManagerEvent, { type: "asr:download-status" }> =>
+    const successStatuses = runtimeEvents
+      .filter((event): event is Extract<RuntimeEvent, { type: "asr:download-status" }> =>
         event.type === "asr:download-status"
       )
       .map((event) => event.payload.status);
-    expect(successStatuses).toEqual<DownloadStatus[]>([
+    expect(successStatuses).toEqual([
       "queued",
       "downloading",
       "verifying",
       "ready"
     ]);
 
-    const progressEvents = events.filter(
-      (event): event is Extract<DownloadManagerEvent, { type: "asr:download-progress" }> =>
+    const progressEvents = runtimeEvents.filter(
+      (event): event is Extract<RuntimeEvent, { type: "asr:download-progress" }> =>
         event.type === "asr:download-progress"
     );
     expect(progressEvents.length).toBeGreaterThan(0);
     expect(progressEvents.at(-1)?.payload.receivedBytes).toBe(modelPayload.byteLength);
 
-    events.length = 0;
+    runtimeEvents.length = 0;
     await expect(downloadManager.downloadModel("whisper-small")).rejects.toMatchObject({
       code: "ASR_DOWNLOAD_FAILED"
     });
 
-    const failedStatuses = events
-      .filter((event): event is Extract<DownloadManagerEvent, { type: "asr:download-status" }> =>
+    const failedStatuses = runtimeEvents
+      .filter((event): event is Extract<RuntimeEvent, { type: "asr:download-status" }> =>
         event.type === "asr:download-status"
       )
       .map((event) => event.payload.status);
-    expect(failedStatuses).toEqual<DownloadStatus[]>([
+    expect(failedStatuses).toEqual([
       "queued",
       "downloading",
       "verifying",

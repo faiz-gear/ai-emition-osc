@@ -1,3 +1,5 @@
+import type { AsrErrorCode } from "./errors.js";
+
 export type FixedLanguage = "zh" | "en";
 export type RecognitionLanguage = "auto" | FixedLanguage;
 
@@ -45,4 +47,13 @@ export type DownloadProgressEvent = {
   modelId: string;
   receivedBytes: number;
   totalBytes: number;
+};
+
+export type DownloadStatus = "queued" | "downloading" | "verifying" | "ready" | "failed";
+
+export type DownloadStatusEvent = {
+  modelId: string;
+  status: DownloadStatus;
+  errorCode?: AsrErrorCode;
+  message?: string;
 };

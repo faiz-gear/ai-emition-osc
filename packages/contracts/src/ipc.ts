@@ -1,6 +1,7 @@
 import type {
   AsrModelCatalogItem,
   DownloadProgressEvent,
+  DownloadStatusEvent,
   InstalledAsrModel,
   RecognitionStrategy
 } from "./asr.js";
@@ -129,5 +130,6 @@ export type RuntimeEvent =
   | { type: "runtime:utterance"; payload: Utterance }
   | { type: "providers:list"; payload: { providers: ProviderSummary[] } }
   | { type: "asr:download-progress"; payload: DownloadProgressEvent }
+  | { type: "asr:download-status"; payload: DownloadStatusEvent }
   | { type: "asr:recognition-strategy"; payload: RecognitionStrategy }
   | { type: "runtime:error"; payload: { code: DesktopErrorCode; message: string } };

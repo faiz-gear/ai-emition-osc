@@ -52,7 +52,7 @@ test("recognition strategy supports auto and fixed zh/en", () => {
 });
 
 test("runtime events are discriminated by type", () => {
-  const event: RuntimeEvent = {
+  const progressEvent: RuntimeEvent = {
     type: "asr:download-progress",
     payload: {
       modelId: "ggml-base",
@@ -60,9 +60,20 @@ test("runtime events are discriminated by type", () => {
       totalBytes: 100
     }
   };
+  const statusEvent: RuntimeEvent = {
+    type: "asr:download-status",
+    payload: {
+      modelId: "ggml-base",
+      status: "verifying"
+    }
+  };
 
-  if (event.type === "asr:download-progress") {
-    expect(event.payload.totalBytes).toBe(100);
+  if (progressEvent.type === "asr:download-progress") {
+    expect(progressEvent.payload.totalBytes).toBe(100);
+  }
+
+  if (statusEvent.type === "asr:download-status") {
+    expect(statusEvent.payload.status).toBe("verifying");
   }
 });
 
