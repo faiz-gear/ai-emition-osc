@@ -79,6 +79,21 @@ function createEmotionResult(
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+
+  return {
+    promise,
+    resolve,
+    reject
+  };
+}
+
 describe("task-9 asr session orchestration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -249,6 +264,182 @@ describe("task-9 asr session orchestration", () => {
       invokeValidated(DesktopCommand.ActivateAsrModel, { modelId: "whisper-small" })
     ).rejects.toMatchObject({
       code: "ASR_MODEL_SWITCH_BLOCKED_WHILE_LISTENING"
+    });
+  });
+
+  test("latest-only emotion processing suppresses stale in-flight results", async () => {
+    const firstEmotion = createDeferred<EmotionResult>();
+    const secondEmotion = createEmotionResult("trust", "latest utterance wins");
+    const emotionService = {
+      analyzeText: vi.fn((text: string) => {
+        if (text === "first transcript") {
+          return firstEmotion.promise;
+        }
+        return Promise.resolve(secondEmotion);
+      })
+    } satisfies Pick<EmotionService, "analyzeText">;
+    const runner: WhisperRunner = {
+      loadModel: vi.fn(async () => undefined),
+      transcribe: vi
+        .fn()
+        .mockResolvedValueOnce("first transcript")
+        .mockResolvedValueOnce("second transcript"),
+      reset: vi.fn()
+    };
+    const services = createInMemoryDesktopIpcServices({
+      runner,
+      emotionService,
+      osc: {
+        sendEmotion: vi.fn(async () => undefined),
+        close: vi.fn()
+      } satisfies Pick<OscService, "sendEmotion" | "close">
+    } as Parameters<typeof createInMemoryDesktopIpcServices>[0]);
+    const runtimeEvents: RuntimeEvent[] = [];
+    services.runtime.subscribe((event) => {
+      runtimeEvents.push(event);
+    });
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+    await invokeValidated(DesktopCommand.StartListening);
+
+    const captureListener = getCaptureListener();
+    const captureBridge = createCaptureBridge({
+      postMessage(channel, message) {
+        expect(channel).toBe(CAPTURE_PCM_CHANNEL);
+        captureListener({ sender: null }, message);
+      }
+    });
+    const workletBridge = createAudioWorkletBridge({ captureBridge });
+
+    workletBridge.forward({
+      segmentId: "segment-1",
+      samples: Float32Array.from([0.1, 0.2]),
+      sampleRate: 16_000,
+      isFinal: true
+    });
+    await vi.waitFor(() => {
+      expect(emotionService.analyzeText).toHaveBeenCalledWith("first transcript");
+    });
+
+    workletBridge.forward({
+      segmentId: "segment-2",
+      samples: Float32Array.from([0.3, 0.4]),
+      sampleRate: 16_000,
+      isFinal: true
+    });
+    await vi.waitFor(() => {
+      expect(
+        runtimeEvents.some(
+          (event) =>
+            event.type === "runtime:utterance" &&
+            event.payload.id === "segment-2" &&
+            event.payload.emotion_status === "queued"
+        )
+      ).toBe(true);
+    });
+
+    firstEmotion.resolve(createEmotionResult("sadness", "stale result should be dropped"));
+
+    await vi.waitFor(() => {
+      expect(
+        runtimeEvents.some(
+          (event) =>
+            event.type === "emotion:result" && event.payload.utteranceId === "segment-2"
+        )
+      ).toBe(true);
+    });
+
+    expect(
+      runtimeEvents.some(
+        (event) => event.type === "emotion:result" && event.payload.utteranceId === "segment-1"
+      )
+    ).toBe(false);
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      metrics: {
+        emotion_stale_total: 1
+      },
+      utterances: [
+        expect.objectContaining({
+          id: "segment-1",
+          final_text: "first transcript",
+          emotion_status: "dropped"
+        }),
+        expect.objectContaining({
+          id: "segment-2",
+          final_text: "second transcript",
+          emotion_status: "done",
+          emotion: secondEmotion
+        })
+      ]
+    });
+  });
+
+  test("emotion failures publish runtime errors and increment error metrics", async () => {
+    const emotionFailure = Object.assign(new Error("provider unavailable"), {
+      code: "PROVIDER_UPSTREAM_UNAVAILABLE"
+    });
+    const services = createInMemoryDesktopIpcServices({
+      runner: createRunnerStub("final transcript"),
+      emotionService: {
+        analyzeText: vi.fn(async () => {
+          throw emotionFailure;
+        })
+      } satisfies Pick<EmotionService, "analyzeText">,
+      osc: {
+        sendEmotion: vi.fn(async () => undefined),
+        close: vi.fn()
+      } satisfies Pick<OscService, "sendEmotion" | "close">
+    } as Parameters<typeof createInMemoryDesktopIpcServices>[0]);
+    const runtimeEvents: RuntimeEvent[] = [];
+    services.runtime.subscribe((event) => {
+      runtimeEvents.push(event);
+    });
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+    await invokeValidated(DesktopCommand.StartListening);
+
+    const captureListener = getCaptureListener();
+    const captureBridge = createCaptureBridge({
+      postMessage(channel, message) {
+        expect(channel).toBe(CAPTURE_PCM_CHANNEL);
+        captureListener({ sender: null }, message);
+      }
+    });
+    const workletBridge = createAudioWorkletBridge({ captureBridge });
+
+    workletBridge.forward({
+      segmentId: "segment-1",
+      samples: Float32Array.from([0.2, -0.1]),
+      sampleRate: 16_000,
+      isFinal: true
+    });
+
+    await vi.waitFor(() => {
+      expect(runtimeEvents).toContainEqual({
+        type: "runtime:error",
+        payload: {
+          code: "PROVIDER_UPSTREAM_UNAVAILABLE",
+          message: "provider unavailable"
+        }
+      });
+    });
+
+    expect(
+      runtimeEvents.some((event) => event.type === "emotion:result")
+    ).toBe(false);
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      metrics: {
+        errors_total: 1
+      },
+      utterances: [
+        expect.objectContaining({
+          id: "segment-1",
+          final_text: "final transcript",
+          emotion_status: "error"
+        })
+      ]
     });
   });
 });

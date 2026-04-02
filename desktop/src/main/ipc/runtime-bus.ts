@@ -36,7 +36,7 @@ export function createRuntimeEventBus(initialSnapshot: RuntimeSnapshot): Runtime
       snapshot = cloneSnapshot(nextSnapshot);
       publishEvent({
         type: "runtime:snapshot",
-        payload: snapshot
+        payload: cloneSnapshot(snapshot)
       });
       return cloneSnapshot(snapshot);
     },

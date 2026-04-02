@@ -46,6 +46,7 @@ export type AsrSessionService = {
   handleEmotionStarted(input: { utteranceId: string }): void;
   handleEmotionResult(input: { utteranceId: string; result: EmotionResult }): void;
   handleEmotionFailure(input: { utteranceId: string }): void;
+  handleEmotionSuperseded(input: { utteranceId: string }): void;
 };
 
 type AsrSessionServiceOptions = {
@@ -209,6 +210,26 @@ export function createAsrSessionService(
           payload: utterance
         });
       }
+    },
+    handleEmotionSuperseded({ utteranceId }) {
+      emotionStartedAt.delete(utteranceId);
+      const utterance = updateUtterance(
+        utteranceId,
+        (current) => ({
+          ...current,
+          emotion_status: "dropped"
+        }),
+        (snapshot) => {
+          snapshot.metrics.emotion_stale_total =
+            (snapshot.metrics.emotion_stale_total ?? 0) + 1;
+        }
+      );
+      if (utterance) {
+        options.runtime.publish({
+          type: "runtime:utterance",
+          payload: utterance
+        });
+      }
     }
   };
 
@@ -304,7 +325,8 @@ export function createAsrSessionService(
 
   function updateUtterance(
     utteranceId: string,
-    updater: (current: Utterance) => Utterance
+    updater: (current: Utterance) => Utterance,
+    afterUpdate?: (snapshot: RuntimeSnapshot) => void
   ): Utterance | null {
     let updatedUtterance: Utterance | null = null;
     commitSnapshot((snapshot) => {
@@ -316,6 +338,7 @@ export function createAsrSessionService(
         updatedUtterance = updater(utterance);
         return updatedUtterance;
       });
+      afterUpdate?.(snapshot);
       snapshot.metrics.emotion_total = snapshot.utterances.filter(
         (utterance) => utterance.emotion_status === "done"
       ).length;

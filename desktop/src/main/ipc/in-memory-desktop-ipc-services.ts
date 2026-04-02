@@ -7,6 +7,7 @@ import type {
   RecognitionStrategy,
   RuntimeSnapshot
 } from "@ai-emotion/contracts";
+import { isDesktopErrorCode } from "@ai-emotion/contracts";
 import { AsrWorkerError, type WhisperRunner } from "../../runtime/asr/asr-worker";
 import { createAsrSessionService } from "../../runtime/asr/asr-session-service";
 import {
@@ -75,6 +76,24 @@ export function createInMemoryDesktopIpcServices(
   const captureSource = options.captureSource ?? createCaptureFrameSource();
   const emotionService = options.emotionService ?? createNeutralEmotionService();
   const osc = options.osc ?? createNoopOscService();
+  const publishRuntimeError = (code: DesktopErrorCode, message: string): void => {
+    const snapshot = runtimeEventBus.getSnapshot();
+    const nextSnapshot = runtimeEventBus.setSnapshot({
+      ...snapshot,
+      metrics: {
+        ...snapshot.metrics,
+        errors_total: snapshot.metrics.errors_total + 1
+      }
+    });
+    runtimeEventBus.publish({
+      type: "runtime:metrics",
+      payload: nextSnapshot.metrics
+    });
+    runtimeEventBus.publish({
+      type: "runtime:error",
+      payload: { code, message }
+    });
+  };
   const session = createAsrSessionService({
     modelStore: {
       getModelsRootPath() {
@@ -115,8 +134,13 @@ export function createInMemoryDesktopIpcServices(
     onResult({ utteranceId, result }) {
       session.handleEmotionResult({ utteranceId, result });
     },
-    onFailed({ utteranceId }) {
+    onFailed({ utteranceId, error }) {
       session.handleEmotionFailure({ utteranceId });
+      const runtimeError = toEmotionRuntimeError(error);
+      publishRuntimeError(runtimeError.code, runtimeError.message);
+    },
+    onSuperseded({ utteranceId }) {
+      session.handleEmotionSuperseded({ utteranceId });
     }
   });
   emotionWorker.start();
@@ -138,18 +162,7 @@ export function createInMemoryDesktopIpcServices(
         return runtimeEventBus.getSnapshot();
       },
       publishError(code: DesktopErrorCode, message: string) {
-        const snapshot = runtimeEventBus.getSnapshot();
-        runtimeEventBus.setSnapshot({
-          ...snapshot,
-          metrics: {
-            ...snapshot.metrics,
-            errors_total: snapshot.metrics.errors_total + 1
-          }
-        });
-        runtimeEventBus.publish({
-          type: "runtime:error",
-          payload: { code, message }
-        });
+        publishRuntimeError(code, message);
       },
       subscribe(listener) {
         return runtimeEventBus.subscribe(listener);
@@ -314,5 +327,26 @@ function createNoopOscService(): Pick<OscService, "sendEmotion" | "close"> {
   return {
     async sendEmotion() {},
     close() {}
+  };
+}
+
+function toEmotionRuntimeError(error: unknown): {
+  code: DesktopErrorCode;
+  message: string;
+} {
+  const message = error instanceof Error ? error.message : "Emotion analysis failed";
+  const candidateCode =
+    error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : null;
+
+  if (typeof candidateCode === "string" && isDesktopErrorCode(candidateCode)) {
+    return {
+      code: candidateCode,
+      message
+    };
+  }
+
+  return {
+    code: "PROVIDER_UPSTREAM_UNAVAILABLE",
+    message
   };
 }

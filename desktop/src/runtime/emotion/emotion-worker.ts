@@ -1,7 +1,7 @@
 import type { EmotionResult } from "@ai-emotion/contracts";
 import type { OscService } from "../osc/osc-service";
 import type { EmotionService } from "./emotion-service";
-import type { EmotionTaskQueue } from "./emotion-queue";
+import { QUEUE_POLICY_LATEST, type EmotionTaskQueue } from "./emotion-queue";
 
 type EmotionWorkerOptions = {
   queue: EmotionTaskQueue;
@@ -10,6 +10,7 @@ type EmotionWorkerOptions = {
   onStarted?: (input: { utteranceId: string }) => Promise<void> | void;
   onResult?: (input: { utteranceId: string; result: EmotionResult }) => Promise<void> | void;
   onFailed?: (input: { utteranceId: string; error: unknown }) => Promise<void> | void;
+  onSuperseded?: (input: { utteranceId: string }) => Promise<void> | void;
 };
 
 export class EmotionWorker {
@@ -41,11 +42,30 @@ export class EmotionWorker {
       }
 
       try {
+        if (await this.isSuperseded(task.generation)) {
+          await this.options.onSuperseded?.({
+            utteranceId: task.utteranceId
+          });
+          continue;
+        }
+
         await this.options.onStarted?.({
           utteranceId: task.utteranceId
         });
         const result = await this.options.service.analyzeText(task.text);
+        if (await this.isSuperseded(task.generation)) {
+          await this.options.onSuperseded?.({
+            utteranceId: task.utteranceId
+          });
+          continue;
+        }
         await this.options.osc.sendEmotion(result.dimensions);
+        if (await this.isSuperseded(task.generation)) {
+          await this.options.onSuperseded?.({
+            utteranceId: task.utteranceId
+          });
+          continue;
+        }
         await this.options.onResult?.({
           utteranceId: task.utteranceId,
           result
@@ -60,5 +80,13 @@ export class EmotionWorker {
         this.options.queue.taskDone();
       }
     }
+  }
+
+  private async isSuperseded(generation: number): Promise<boolean> {
+    if (this.options.queue.policy !== QUEUE_POLICY_LATEST) {
+      return false;
+    }
+
+    return !(await this.options.queue.isLatestGeneration(generation));
   }
 }
