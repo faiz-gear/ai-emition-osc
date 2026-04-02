@@ -11,12 +11,14 @@
   },
   "dependencies": {
     "@ai-emotion/contracts": "file:../packages/contracts",
+    "@huggingface/transformers": "^3.7.6",
     "@langchain/ollama": "^1.2.6",
     "@langchain/openai": "^1.4.1",
     "better-sqlite3": "^12.8.0",
     "electron": "^31.7.7",
     "electron-vite": "^2.3.0",
     "node-osc": "^11.3.0",
+    "onnxruntime-node": "^1.20.1",
     "openai": "^6.33.0",
     "vitest": "^2.1.0",
     "zod": "^4.3.6"
