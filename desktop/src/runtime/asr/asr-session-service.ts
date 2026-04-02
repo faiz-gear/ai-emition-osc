@@ -72,7 +72,8 @@ export function createAsrSessionService(
   let phase: SessionPhase = "idle";
   let transition: Promise<void> | null = null;
   let unsubscribeCaptureSource: (() => void) | null = null;
-  let cancelPendingStart = false;
+  let targetListening = false;
+  let intentVersion = 0;
 
   const asrWorker = createAsrWorker({
     modelStore: options.modelStore,
@@ -82,6 +83,9 @@ export function createAsrSessionService(
 
   return {
     async startListening() {
+      targetListening = true;
+      const requestVersion = ++intentVersion;
+
       if (phase === "listening") {
         ensureCaptureSubscription();
         return;
@@ -89,7 +93,10 @@ export function createAsrSessionService(
 
       if (phase === "starting") {
         await transition;
-        if (phase === "idle") {
+        if (requestVersion !== intentVersion) {
+          return;
+        }
+        if (targetListening && phase === "idle") {
           await this.startListening();
         }
         return;
@@ -97,15 +104,19 @@ export function createAsrSessionService(
 
       if (phase === "stopping") {
         await transition;
-        await this.startListening();
+        if (requestVersion !== intentVersion) {
+          return;
+        }
+        if (targetListening && phase === "idle") {
+          await this.startListening();
+        }
         return;
       }
 
       transition = (async () => {
         phase = "starting";
         await asrWorker.startListening();
-        if (cancelPendingStart) {
-          cancelPendingStart = false;
+        if (!targetListening) {
           await asrWorker.stopListening();
           phase = "idle";
           return;
@@ -118,12 +129,14 @@ export function createAsrSessionService(
         if (phase === "starting") {
           phase = asrWorker.isListening() ? "listening" : "idle";
         }
-        cancelPendingStart = false;
       });
 
       await transition;
     },
     async stopListening() {
+      targetListening = false;
+      const requestVersion = ++intentVersion;
+
       if (phase === "idle") {
         detachCaptureSubscription();
         return;
@@ -135,9 +148,11 @@ export function createAsrSessionService(
       }
 
       if (phase === "starting") {
-        cancelPendingStart = true;
         await transition;
-        if (phase !== "listening") {
+        if (requestVersion !== intentVersion) {
+          return;
+        }
+        if (phase !== "listening" || targetListening) {
           return;
         }
       }

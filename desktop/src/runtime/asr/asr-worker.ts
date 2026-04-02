@@ -61,6 +61,7 @@ export function createAsrWorker(options: AsrWorkerOptions): AsrWorker {
   const runner = options.runner ?? createWhisperRunner();
   let recognitionStrategy: RecognitionStrategy = { mode: "auto" };
   let listening = false;
+  let listeningGeneration = 0;
   let loadedModelId: string | null = null;
   const segments = new Map<string, SegmentBuffer>();
   const finalizedSegments = new Set<string>();
@@ -106,9 +107,11 @@ export function createAsrWorker(options: AsrWorkerOptions): AsrWorker {
       const modelId = await resolveReadyModelId();
       await ensureRunner(modelId);
       listening = true;
+      listeningGeneration += 1;
     },
     async stopListening() {
       listening = false;
+      listeningGeneration += 1;
       segments.clear();
       finalizedSegments.clear();
     },
@@ -158,6 +161,7 @@ export function createAsrWorker(options: AsrWorkerOptions): AsrWorker {
       finalizedSegments.add(frame.segmentId);
       segments.delete(frame.segmentId);
 
+      const frameGeneration = listeningGeneration;
       const modelId = loadedModelId ?? (await resolveReadyModelId());
       const text = (
         await runner.transcribe({
@@ -166,6 +170,10 @@ export function createAsrWorker(options: AsrWorkerOptions): AsrWorker {
           recognitionStrategy
         })
       ).trim();
+
+      if (!listening || frameGeneration !== listeningGeneration) {
+        return;
+      }
 
       if (text.length === 0) {
         return;

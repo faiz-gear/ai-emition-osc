@@ -321,12 +321,10 @@ describe("task-9 asr session orchestration", () => {
     services.runtime.subscribe((event) => {
       runtimeEvents.push(event);
     });
-    registerIpc(services);
-
-    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
-    const startPromise = invokeValidated(DesktopCommand.StartListening);
+    await services.asr.downloadModel("whisper-base");
+    const startPromise = services.session.startListening();
     await Promise.resolve();
-    const stopPromise = invokeValidated(DesktopCommand.StopListening);
+    const stopPromise = services.session.stopListening();
 
     loadModel.resolve();
     await Promise.all([startPromise, stopPromise]);
@@ -353,17 +351,15 @@ describe("task-9 asr session orchestration", () => {
       reset: vi.fn()
     };
     const services = createInMemoryDesktopIpcServices({ runner });
-    registerIpc(services);
-
-    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
-    const firstStart = invokeValidated(DesktopCommand.StartListening);
+    await services.asr.downloadModel("whisper-base");
+    const firstStart = services.session.startListening();
     await Promise.resolve();
-    const stopPromise = invokeValidated(DesktopCommand.StopListening);
+    const stopPromise = services.session.stopListening();
 
     firstLoadModel.reject(new Error("load failed"));
     await Promise.allSettled([firstStart, stopPromise]);
 
-    await expect(invokeValidated(DesktopCommand.StartListening)).resolves.toBeUndefined();
+    await expect(services.session.startListening()).resolves.toBeUndefined();
     await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
       status: { listening: true }
     });
@@ -380,19 +376,93 @@ describe("task-9 asr session orchestration", () => {
       reset: vi.fn()
     };
     const services = createInMemoryDesktopIpcServices({ runner });
-    registerIpc(services);
-
-    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
-    const firstStart = invokeValidated(DesktopCommand.StartListening);
+    await services.asr.downloadModel("whisper-base");
+    const firstStart = services.session.startListening();
     await Promise.resolve();
-    const stopPromise = invokeValidated(DesktopCommand.StopListening);
-    const secondStart = invokeValidated(DesktopCommand.StartListening);
+    const stopPromise = services.session.stopListening();
+    const secondStart = services.session.startListening();
 
     firstLoadModel.resolve();
     await Promise.all([firstStart, stopPromise, secondStart]);
 
     await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
       status: { listening: true }
+    });
+  });
+
+  test("start-start-stop during a slow load honors the final stop intent", async () => {
+    const firstLoadModel = createDeferred<void>();
+    const runner: WhisperRunner = {
+      loadModel: vi.fn(() => firstLoadModel.promise),
+      transcribe: vi.fn(async () => "transcript"),
+      reset: vi.fn()
+    };
+    const services = createInMemoryDesktopIpcServices({ runner });
+    await services.asr.downloadModel("whisper-base");
+    const firstStart = services.session.startListening();
+    await Promise.resolve();
+    const secondStart = services.session.startListening();
+    const stopPromise = services.session.stopListening();
+
+    firstLoadModel.resolve();
+    await Promise.all([firstStart, secondStart, stopPromise]);
+
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: false }
+    });
+  });
+
+  test("stopListening drops in-flight final transcripts that finish after stop", async () => {
+    const transcribe = createDeferred<string>();
+    const runner: WhisperRunner = {
+      loadModel: vi.fn(async () => undefined),
+      transcribe: vi.fn(() => transcribe.promise),
+      reset: vi.fn()
+    };
+    const services = createInMemoryDesktopIpcServices({ runner });
+    const runtimeEvents: RuntimeEvent[] = [];
+    services.runtime.subscribe((event) => {
+      runtimeEvents.push(event);
+    });
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+    await invokeValidated(DesktopCommand.StartListening);
+
+    const captureListener = getCaptureListener();
+    const captureBridge = createCaptureBridge({
+      postMessage(channel, message) {
+        expect(channel).toBe(CAPTURE_PCM_CHANNEL);
+        captureListener({ sender: null }, message);
+      }
+    });
+    const workletBridge = createAudioWorkletBridge({ captureBridge });
+
+    workletBridge.forward({
+      segmentId: "segment-1",
+      samples: Float32Array.from([0.3, 0.2]),
+      sampleRate: 16_000,
+      isFinal: true
+    });
+    await vi.waitFor(() => {
+      expect(runner.transcribe).toHaveBeenCalledTimes(1);
+    });
+
+    await invokeValidated(DesktopCommand.StopListening);
+    transcribe.resolve("late transcript");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          event.type === "runtime:utterance" &&
+          event.payload.id === "segment-1"
+      )
+    ).toBe(false);
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: false },
+      utterances: []
     });
   });
 
