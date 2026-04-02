@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { EmotionService } from "../../../runtime/emotion/emotion-service";
+import { EmotionTaskQueue, QUEUE_POLICY_FIFO } from "../../../runtime/emotion/emotion-queue";
+import { EmotionWorker } from "../../../runtime/emotion/emotion-worker";
 import { OscService, type OscTransport } from "../../../runtime/osc/osc-service";
 import type { ChatModelLike } from "../../../runtime/providers/provider-service";
 
@@ -127,6 +129,43 @@ describe("emotion service", () => {
     expect(result.dominant_emotion).toBe("anger");
     expect(result.dimensions.anger).toBe(1);
   });
+
+  test("extracts fallback JSON from structured LangChain text blocks", async () => {
+    const model = new FakeChatModel({
+      structuredError: new Error("structured output unavailable"),
+      rawResult: {
+        content: [
+          { type: "text", text: "preface" },
+          {
+            type: "text",
+            text: `${JSON.stringify({
+              dimensions: {
+                joy: 0.7,
+                trust: 0.2,
+                fear: 0.1,
+                surprise: 0.1,
+                sadness: 0.1,
+                disgust: 0.1,
+                anger: 0.2,
+                anticipation: 0.2
+              },
+              dominant_emotion: "joy",
+              brief_explanation: "block fallback"
+            })}\ntrailing commentary`
+          }
+        ]
+      }
+    });
+    const service = new EmotionService({
+      providerService: new FakeProviderService(model),
+      promptTemplate: "Analyze {input_text}"
+    });
+
+    const result = await service.analyzeText("hello");
+
+    expect(result.dominant_emotion).toBe("joy");
+    expect(result.dimensions.joy).toBe(0.7);
+  });
 });
 
 describe("osc service", () => {
@@ -159,4 +198,93 @@ describe("osc service", () => {
     ).not.toThrow();
     expect(attempts).toBe(1);
   });
+
+  test("swallows asynchronous transport exceptions", async () => {
+    const transport: OscTransport = {
+      send() {
+        return Promise.reject(new Error("socket unavailable"));
+      },
+      close() {
+        return Promise.resolve();
+      }
+    };
+    const service = new OscService({
+      host: "127.0.0.1",
+      port: 9000,
+      transport
+    });
+
+    await expect(
+      service.sendEmotion({
+        joy: 0.1,
+        trust: 0.2,
+        fear: 0.3,
+        surprise: 0.4,
+        sadness: 0.5,
+        disgust: 0.6,
+        anger: 0.7,
+        anticipation: 0.8
+      })
+    ).resolves.toBeUndefined();
+  });
 });
+
+describe("emotion worker", () => {
+  test("keeps processing after a task fails", async () => {
+    const queue = new EmotionTaskQueue(QUEUE_POLICY_FIFO, 4);
+    const processed: string[] = [];
+    let calls = 0;
+    const worker = new EmotionWorker({
+      queue,
+      service: {
+        async analyzeText(text: string) {
+          calls += 1;
+          if (calls === 1) {
+            throw new Error("temporary upstream failure");
+          }
+          return {
+            dominant_emotion: text,
+            brief_explanation: "",
+            dimensions: {
+              joy: 0.1,
+              trust: 0.1,
+              fear: 0.1,
+              surprise: 0.1,
+              sadness: 0.1,
+              disgust: 0.1,
+              anger: 0.1,
+              anticipation: 0.1
+            }
+          };
+        }
+      } as EmotionService,
+      osc: {
+        async sendEmotion() {},
+        close() {}
+      } as unknown as OscService,
+      onResult({ utteranceId }) {
+        processed.push(utteranceId);
+      }
+    });
+
+    worker.start();
+    await queue.enqueue("first", "first");
+    await queue.enqueue("second", "second");
+
+    await waitFor(() => processed.includes("second"));
+    await expect(worker.stop()).resolves.toBeUndefined();
+    expect(processed).toEqual(["second"]);
+  });
+});
+
+async function waitFor(check: () => boolean): Promise<void> {
+  const timeoutAt = Date.now() + 1_000;
+  while (Date.now() < timeoutAt) {
+    if (check()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error("Timed out waiting for condition");
+}

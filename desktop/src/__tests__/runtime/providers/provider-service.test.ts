@@ -127,6 +127,21 @@ describe("provider service", () => {
     });
   });
 
+  test("creates the database parent directory during initialization", async () => {
+    const sandboxPath = await mkdtemp(join(tmpdir(), "provider-service-nested-test-"));
+    sandboxes.push(sandboxPath);
+
+    const repository = new SqliteProviderRepository(
+      join(sandboxPath, "runtime", "nested", "providers.sqlite3")
+    );
+
+    await expect(repository.initialize("qwen2.5:3b")).resolves.toBeUndefined();
+    await expect(repository.getActive()).resolves.toMatchObject({
+      provider_type: "ollama",
+      is_active: true
+    });
+  });
+
   test("maps provider auth failures to a stable error code", async () => {
     class AuthError extends Error {
       public readonly status_code = 401;

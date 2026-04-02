@@ -24,17 +24,17 @@ export class OscService {
       });
   }
 
-  public sendEmotion(dimensions: EmotionDimensions): void {
+  public async sendEmotion(dimensions: EmotionDimensions): Promise<void> {
     try {
-      void this.transport.send("/emotion", [dimensions]);
+      await Promise.resolve(this.transport.send("/emotion", [dimensions]));
     } catch {
       return;
     }
   }
 
-  public close(): void {
+  public async close(): Promise<void> {
     try {
-      void this.transport.close();
+      await Promise.resolve(this.transport.close());
     } catch {
       return;
     }

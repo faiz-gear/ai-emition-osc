@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import type { ProviderType } from "@ai-emotion/contracts";
 
@@ -52,6 +54,7 @@ export class SqliteProviderRepository {
   private readonly database: Database.Database;
 
   public constructor(private readonly dbPath: string) {
+    mkdirSync(dirname(dbPath), { recursive: true });
     this.database = new Database(dbPath);
     this.database.pragma("foreign_keys = ON");
   }

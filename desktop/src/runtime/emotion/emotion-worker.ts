@@ -40,11 +40,13 @@ export class EmotionWorker {
 
       try {
         const result = await this.options.service.analyzeText(task.text);
-        this.options.osc.sendEmotion(result.dimensions);
+        await this.options.osc.sendEmotion(result.dimensions);
         await this.options.onResult?.({
           utteranceId: task.utteranceId,
           result
         });
+      } catch {
+        continue;
       } finally {
         this.options.queue.taskDone();
       }

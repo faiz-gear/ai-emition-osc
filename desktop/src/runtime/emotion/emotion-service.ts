@@ -146,12 +146,29 @@ function stringifyResponseContent(response: unknown): string {
   if (response && typeof response === "object" && "content" in response) {
     const content = (response as { content: unknown }).content;
     if (Array.isArray(content)) {
-      return content.map((part) => String(part)).join("\n");
+      return content.map(stringifyContentPart).join("\n");
     }
     return String(content);
   }
 
   return String(response);
+}
+
+function stringifyContentPart(part: unknown): string {
+  if (typeof part === "string") {
+    return part;
+  }
+
+  if (part && typeof part === "object") {
+    if ("text" in part && typeof (part as { text?: unknown }).text === "string") {
+      return (part as { text: string }).text;
+    }
+    if ("content" in part && typeof (part as { content?: unknown }).content === "string") {
+      return (part as { content: string }).content;
+    }
+  }
+
+  return String(part);
 }
 
 function safeParseObject(text: string | undefined): Record<string, unknown> | null {
