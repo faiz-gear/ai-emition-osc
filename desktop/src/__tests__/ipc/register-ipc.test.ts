@@ -223,7 +223,7 @@ describe("registerIpc", () => {
       (_event: unknown, runtimeEvent: RuntimeEvent) => void
     ];
     const runtimeEvent: RuntimeEvent = {
-      type: "runtime:status",
+      type: "session:status",
       payload: { listening: true }
     };
 

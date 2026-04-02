@@ -5,7 +5,7 @@ import type {
   InstalledAsrModel,
   RecognitionStrategy
 } from "./asr.js";
-import type { Metrics, ProviderSummary, Utterance } from "./domain.js";
+import type { EmotionResult, Metrics, ProviderSummary, Utterance } from "./domain.js";
 import type { DesktopErrorCode } from "./errors.js";
 import type {
   CreateProviderRequest,
@@ -125,9 +125,11 @@ export type DesktopCommandResponseMap = {
 };
 
 export type RuntimeEvent =
-  | { type: "runtime:status"; payload: { listening: boolean } }
+  | { type: "session:status"; payload: { listening: boolean } }
   | { type: "runtime:metrics"; payload: Metrics }
   | { type: "runtime:utterance"; payload: Utterance }
+  | { type: "emotion:started"; payload: { utteranceId: string } }
+  | { type: "emotion:result"; payload: { utteranceId: string; result: EmotionResult } }
   | { type: "providers:list"; payload: { providers: ProviderSummary[] } }
   | { type: "asr:download-progress"; payload: DownloadProgressEvent }
   | { type: "asr:download-status"; payload: DownloadStatusEvent }

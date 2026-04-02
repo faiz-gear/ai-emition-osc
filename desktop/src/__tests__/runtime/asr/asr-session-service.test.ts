@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { DesktopCommand, type RuntimeEvent } from "@ai-emotion/contracts";
+import {
+  DesktopCommand,
+  type EmotionResult,
+  type RuntimeEvent
+} from "@ai-emotion/contracts";
 import { createAudioWorkletBridge } from "../../../capture/audio-worklet-bridge";
 import { registerIpc } from "../../../main/ipc/register-ipc";
 import { createInMemoryDesktopIpcServices } from "../../../main/ipc/in-memory-desktop-ipc-services";
 import { createCaptureBridge } from "../../../preload/desktop-api";
 import type { WhisperRunner } from "../../../runtime/asr/asr-worker";
 import { CAPTURE_PCM_CHANNEL } from "../../../runtime/asr/capture-ipc";
+import type { EmotionService } from "../../../runtime/emotion/emotion-service";
+import type { OscService } from "../../../runtime/osc/osc-service";
 
 const { browserWindowGetAllWindowsMock, destroyCaptureWindowMock, ensureCaptureWindowMock, handleMock, ipcMainOnMock } = vi.hoisted(() => ({
   browserWindowGetAllWindowsMock: vi.fn(() => []),
@@ -52,7 +58,27 @@ function getCaptureListener(): (event: unknown, payload: unknown) => void {
   return listener;
 }
 
-describe("task-8 capture-to-asr flow", () => {
+function createEmotionResult(
+  dominantEmotion = "joy",
+  briefExplanation = "detected from transcript"
+): EmotionResult {
+  return {
+    dominant_emotion: dominantEmotion,
+    brief_explanation: briefExplanation,
+    dimensions: {
+      joy: 0.9,
+      trust: 0.2,
+      fear: 0.1,
+      surprise: 0.3,
+      sadness: 0.1,
+      disgust: 0.1,
+      anger: 0.1,
+      anticipation: 0.4
+    }
+  };
+}
+
+describe("task-9 asr session orchestration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     browserWindowGetAllWindowsMock.mockReturnValue([]);
@@ -79,9 +105,21 @@ describe("task-8 capture-to-asr flow", () => {
     ).rejects.toThrow(/invalid/i);
   });
 
-  test("pcm frames from capture bridge produce one finalized transcript event when a segment closes", async () => {
-    const services = createInMemoryDesktopIpcServices({ runner: createRunnerStub("final transcript") });
-    const runtimeEvents: RuntimeEvent[] = [];
+  test("startListening publishes status, final transcripts enqueue emotion analysis, emotion events are ordered, and stopListening closes cleanly", async () => {
+    const emotionResult = createEmotionResult();
+    const emotionService = {
+      analyzeText: vi.fn(async () => emotionResult)
+    } satisfies Pick<EmotionService, "analyzeText">;
+    const osc = {
+      sendEmotion: vi.fn(async () => undefined),
+      close: vi.fn()
+    } satisfies Pick<OscService, "sendEmotion" | "close">;
+    const services = createInMemoryDesktopIpcServices({
+      runner: createRunnerStub("final transcript"),
+      emotionService,
+      osc
+    } as Parameters<typeof createInMemoryDesktopIpcServices>[0]);
+    const runtimeEvents: Array<RuntimeEvent | { type: string; payload: unknown }> = [];
     const unsubscribe = services.runtime.subscribe((event) => {
       runtimeEvents.push(event);
     });
@@ -89,6 +127,13 @@ describe("task-8 capture-to-asr flow", () => {
 
     await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
     await invokeValidated(DesktopCommand.StartListening);
+
+    await vi.waitFor(() => {
+      expect(runtimeEvents).toContainEqual({
+        type: "session:status",
+        payload: { listening: true }
+      });
+    });
 
     const captureListener = getCaptureListener();
     const captureBridge = createCaptureBridge({
@@ -113,8 +158,10 @@ describe("task-8 capture-to-asr flow", () => {
     });
 
     await vi.waitFor(() => {
-      const utteranceEvents = runtimeEvents.filter((event) => event.type === "runtime:utterance");
-      expect(utteranceEvents).toHaveLength(1);
+      const eventTypes = runtimeEvents.map((event) => event.type);
+      expect(eventTypes).toContain("runtime:utterance");
+      expect(eventTypes).toContain("emotion:started");
+      expect(eventTypes).toContain("emotion:result");
     });
 
     const [utteranceEvent] = runtimeEvents.filter((event) => event.type === "runtime:utterance");
@@ -125,6 +172,56 @@ describe("task-8 capture-to-asr flow", () => {
         emotion_status: "queued"
       }
     });
+    expect(emotionService.analyzeText).toHaveBeenCalledWith("final transcript");
+    expect(osc.sendEmotion).toHaveBeenCalledWith(emotionResult.dimensions);
+
+    const startedIndex = runtimeEvents.findIndex((event) => event.type === "emotion:started");
+    const resultIndex = runtimeEvents.findIndex((event) => event.type === "emotion:result");
+    expect(startedIndex).toBeGreaterThan(-1);
+    expect(resultIndex).toBeGreaterThan(startedIndex);
+    expect(runtimeEvents[resultIndex]).toMatchObject({
+      type: "emotion:result",
+      payload: {
+        utteranceId: "segment-1",
+        result: emotionResult
+      }
+    });
+
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: true },
+      utterances: [
+        expect.objectContaining({
+          id: "segment-1",
+          final_text: "final transcript",
+          emotion_status: "done",
+          emotion: emotionResult
+        })
+      ]
+    });
+
+    await invokeValidated(DesktopCommand.StopListening);
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: false }
+    });
+
+    workletBridge.forward({
+      segmentId: "segment-2",
+      samples: Float32Array.from([0.5, 0.2]),
+      sampleRate: 16_000,
+      isFinal: true
+    });
+    await Promise.resolve();
+    expect(
+      runtimeEvents.filter(
+        (event) =>
+          event.type === "runtime:utterance" &&
+          "payload" in event &&
+          !!event.payload &&
+          typeof event.payload === "object" &&
+          "id" in event.payload &&
+          event.payload.id === "segment-2"
+      )
+    ).toHaveLength(0);
 
     unsubscribe();
   });

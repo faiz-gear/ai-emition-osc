@@ -7,7 +7,9 @@ type EmotionWorkerOptions = {
   queue: EmotionTaskQueue;
   service: EmotionService;
   osc: OscService;
+  onStarted?: (input: { utteranceId: string }) => Promise<void> | void;
   onResult?: (input: { utteranceId: string; result: EmotionResult }) => Promise<void> | void;
+  onFailed?: (input: { utteranceId: string; error: unknown }) => Promise<void> | void;
 };
 
 export class EmotionWorker {
@@ -39,13 +41,20 @@ export class EmotionWorker {
       }
 
       try {
+        await this.options.onStarted?.({
+          utteranceId: task.utteranceId
+        });
         const result = await this.options.service.analyzeText(task.text);
         await this.options.osc.sendEmotion(result.dimensions);
         await this.options.onResult?.({
           utteranceId: task.utteranceId,
           result
         });
-      } catch {
+      } catch (error) {
+        await this.options.onFailed?.({
+          utteranceId: task.utteranceId,
+          error
+        });
         continue;
       } finally {
         this.options.queue.taskDone();

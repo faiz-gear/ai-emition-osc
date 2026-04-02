@@ -13,12 +13,17 @@ import { CAPTURE_PCM_CHANNEL, parseCapturePcmFramePayload } from "../../runtime/
 import { invokeValidators } from "./validators";
 import { destroyCaptureWindow, ensureCaptureWindow } from "../windows/capture-window-runtime";
 
+let capturePcmListener:
+  | ((event: unknown, payload: unknown) => void)
+  | null = null;
+
 function registerHandler<K extends DesktopCommandName>(
   commandName: K,
   handler: (
     payload: DesktopCommandPayloadMap[K]
   ) => Promise<DesktopCommandResponseMap[K]> | DesktopCommandResponseMap[K]
 ): void {
+  electron.ipcMain?.removeHandler?.(commandName);
   electron.ipcMain?.handle?.(commandName, async (_event, rawPayload) => {
     const validatedPayload = invokeValidators[commandName](rawPayload);
     return handler(validatedPayload);
@@ -82,7 +87,11 @@ export function registerIpc(services: DesktopIpcServices = getDefaultDesktopIpcS
     await services.providers.activate(providerId);
   });
 
-  electron.ipcMain?.on?.(CAPTURE_PCM_CHANNEL, (_event, payload) => {
+  if (capturePcmListener) {
+    electron.ipcMain?.off?.(CAPTURE_PCM_CHANNEL, capturePcmListener);
+  }
+
+  capturePcmListener = (_event, payload) => {
     const parsed = parseCapturePcmFramePayload(payload);
     if (!parsed) {
       return;
@@ -92,7 +101,9 @@ export function registerIpc(services: DesktopIpcServices = getDefaultDesktopIpcS
       const { code, message } = toRuntimeErrorPayload(error);
       services.runtime.publishError(code, message);
     });
-  });
+  };
+
+  electron.ipcMain?.on?.(CAPTURE_PCM_CHANNEL, capturePcmListener);
 }
 
 function toRuntimeErrorPayload(error: unknown): {
