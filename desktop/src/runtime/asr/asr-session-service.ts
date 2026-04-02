@@ -89,6 +89,9 @@ export function createAsrSessionService(
 
       if (phase === "starting") {
         await transition;
+        if (phase === "idle") {
+          await this.startListening();
+        }
         return;
       }
 
@@ -123,7 +126,6 @@ export function createAsrSessionService(
     async stopListening() {
       if (phase === "idle") {
         detachCaptureSubscription();
-        publishListeningStatus(false);
         return;
       }
 

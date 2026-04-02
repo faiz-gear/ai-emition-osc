@@ -215,6 +215,37 @@ describe("registerIpc", () => {
     });
   });
 
+  test("session startup failure does not publish idle-to-idle session events", async () => {
+    const runner = {
+      loadModel: vi.fn(async () => {
+        throw new Error("load failed");
+      }),
+      transcribe: vi.fn(async () => ""),
+      reset: vi.fn()
+    };
+    const services = createInMemoryDesktopIpcServices({
+      runner
+    });
+    const runtimeEvents: RuntimeEvent[] = [];
+    services.runtime.subscribe((event) => {
+      runtimeEvents.push(event);
+    });
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+
+    await expect(invokeValidated(DesktopCommand.StartListening)).rejects.toThrow(
+      "load failed"
+    );
+
+    expect(
+      runtimeEvents.some((event) => event.type === "session:status")
+    ).toBe(false);
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: false }
+    });
+  });
+
   test("capture worker failures publish runtime errors instead of being dropped", async () => {
     const services = createServices();
     services.session.handleCapturePcmFrame.mockRejectedValueOnce(

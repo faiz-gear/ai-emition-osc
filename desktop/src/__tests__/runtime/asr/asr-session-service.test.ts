@@ -369,6 +369,33 @@ describe("task-9 asr session orchestration", () => {
     });
   });
 
+  test("start-stop-start during a slow load honors the final start intent", async () => {
+    const firstLoadModel = createDeferred<void>();
+    const runner: WhisperRunner = {
+      loadModel: vi
+        .fn()
+        .mockImplementationOnce(() => firstLoadModel.promise)
+        .mockResolvedValueOnce(undefined),
+      transcribe: vi.fn(async () => "transcript"),
+      reset: vi.fn()
+    };
+    const services = createInMemoryDesktopIpcServices({ runner });
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+    const firstStart = invokeValidated(DesktopCommand.StartListening);
+    await Promise.resolve();
+    const stopPromise = invokeValidated(DesktopCommand.StopListening);
+    const secondStart = invokeValidated(DesktopCommand.StartListening);
+
+    firstLoadModel.resolve();
+    await Promise.all([firstStart, stopPromise, secondStart]);
+
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: true }
+    });
+  });
+
   test("latest-only emotion processing suppresses stale in-flight results", async () => {
     const firstEmotion = createDeferred<EmotionResult>();
     const secondEmotion = createEmotionResult("trust", "latest utterance wins");
