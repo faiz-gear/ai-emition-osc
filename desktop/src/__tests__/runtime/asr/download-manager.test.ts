@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdtemp, open, readdir, rm } from "node:fs/promises";
+import { mkdtemp, open, readdir, readFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
@@ -252,7 +252,10 @@ describe("download manager", () => {
 
     await expect(downloadManager.downloadModel("whisper-tiny")).resolves.toBeUndefined();
 
-    const modelFiles = await readdir(appConfigStore.getPaths().asrModelRootPath);
+    const modelRootPath = appConfigStore.getPaths().asrModelRootPath;
+    const modelFiles = await readdir(modelRootPath);
     expect(modelFiles).toContain("whisper-tiny.bin");
+    const modelBytes = await readFile(join(modelRootPath, "whisper-tiny.bin"));
+    expect(modelBytes.equals(modelPayload)).toBe(true);
   });
 });

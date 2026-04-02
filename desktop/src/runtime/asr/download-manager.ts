@@ -7,7 +7,7 @@ import type {
   DownloadStatusEvent,
   RuntimeEvent
 } from "@ai-emotion/contracts";
-import { getAsrModelCatalogEntry, listAsrModelCatalog, type AsrModelCatalogEntry } from "./model-catalog";
+import { listAsrModelCatalog, type AsrModelCatalogEntry } from "./model-catalog";
 import type { ModelStore } from "./model-store";
 
 export type RuntimeEventPublisher = {
@@ -52,7 +52,7 @@ export function createDownloadManager(options: CreateDownloadManagerOptions): Do
         return existing;
       }
 
-      const task = (async () => {
+      const task = Promise.resolve().then(async () => {
         const model = catalogById.get(modelId);
         const emitStatus = createStatusEmitter(modelId, options.runtimeEventBus);
 
@@ -147,7 +147,7 @@ export function createDownloadManager(options: CreateDownloadManagerOptions): Do
           emitStatus("failed", downloadError);
           throw downloadError;
         }
-      })();
+      });
 
       inFlightDownloads.set(modelId, task);
       try {
