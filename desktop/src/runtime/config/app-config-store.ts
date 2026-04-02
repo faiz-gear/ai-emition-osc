@@ -77,10 +77,12 @@ export function resolveAppConfigPaths(app: ElectronAppPathAdapter = electronApp)
 
 export function createAppConfigStore(options: CreateAppConfigStoreOptions = {}): AppConfigStore {
   const paths = resolveAppConfigPaths(options.app ?? electronApp);
+  let updateQueue: Promise<void> = Promise.resolve();
 
   async function persistConfig(config: AppConfig): Promise<void> {
     await mkdir(dirname(paths.configFilePath), { recursive: true });
-    await writeFile(paths.configFilePath, JSON.stringify(config, null, 2), "utf8");
+    const normalized = normalizeConfig(config);
+    await writeFile(paths.configFilePath, JSON.stringify(normalized, null, 2), "utf8");
   }
 
   async function readConfig(): Promise<AppConfig> {
@@ -96,10 +98,16 @@ export function createAppConfigStore(options: CreateAppConfigStoreOptions = {}):
   }
 
   async function updateConfig(updater: (current: AppConfig) => AppConfig): Promise<AppConfig> {
-    const current = await readConfig();
-    const next = updater(current);
-    await persistConfig(next);
-    return next;
+    const result = updateQueue.then(async () => {
+      const current = await readConfig();
+      const next = normalizeConfig(updater(current));
+      await persistConfig(next);
+      return next;
+    });
+
+    updateQueue = result.then(() => undefined, () => undefined);
+
+    return result;
   }
 
   return {
@@ -153,7 +161,7 @@ function normalizeConfig(input: unknown): AppConfig {
       config.asr.fixedLanguage = candidate.asr.fixedLanguage;
     }
     if (Array.isArray(candidate.asr.installedModels)) {
-      config.asr.installedModels = candidate.asr.installedModels;
+      config.asr.installedModels = candidate.asr.installedModels.filter(isInstalledAsrModel);
     }
   }
 
@@ -179,4 +187,20 @@ function normalizeConfig(input: unknown): AppConfig {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return !!error && typeof error === "object" && "code" in error;
+}
+
+function isInstalledAsrModel(value: unknown): value is InstalledAsrModel {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as InstalledAsrModel;
+
+  return (
+    typeof candidate.modelId === "string" &&
+    typeof candidate.installedAt === "string" &&
+    typeof candidate.sizeBytes === "number" &&
+    Number.isFinite(candidate.sizeBytes) &&
+    typeof candidate.active === "boolean"
+  );
 }
