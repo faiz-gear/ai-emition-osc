@@ -14,13 +14,19 @@ import {
   type RuntimeEvent,
   type RuntimeSnapshot
 } from "@ai-emotion/contracts";
-import { CAPTURE_PCM_CHANNEL, type CapturePcmFramePayload } from "../runtime/asr/capture-ipc";
+import {
+  CAPTURE_PCM_CHANNEL,
+  CAPTURE_STATUS_CHANNEL,
+  type CapturePcmFramePayload
+} from "../runtime/asr/capture-ipc";
 
 type DesktopIpcRendererLike = Pick<typeof ipcRenderer, "invoke" | "on" | "off">;
 type CaptureIpcRendererLike = Pick<typeof ipcRenderer, "postMessage">;
 export type { DesktopApi } from "@ai-emotion/contracts";
 export type CaptureBridgeApi = {
   sendPcmFrame(frame: CapturePcmFramePayload): void;
+  reportReady(): void;
+  reportError(message: string): void;
 };
 
 function invoke<TResponse>(
@@ -115,6 +121,18 @@ export function createCaptureBridge(ipc: CaptureIpcRendererLike = ipcRenderer): 
         },
         [samples.buffer]
       );
+    },
+    reportReady() {
+      ipc.postMessage(CAPTURE_STATUS_CHANNEL, {
+        type: "ready"
+      });
+    },
+    reportError(message) {
+      ipc.postMessage(CAPTURE_STATUS_CHANNEL, {
+        type: "error",
+        code: "ASR_RECOGNITION_FAILED",
+        message
+      });
     }
   };
 }

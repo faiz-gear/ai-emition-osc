@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { destroyCaptureWindowMock, ipcMainHandleMock, onMock, whenReadyMock } = vi.hoisted(() => ({
+const { destroyCaptureWindowMock, ipcMainHandleMock, onMock, stopListeningMock, whenReadyMock } = vi.hoisted(() => ({
   destroyCaptureWindowMock: vi.fn(),
   ipcMainHandleMock: vi.fn(),
   onMock: vi.fn(),
+  stopListeningMock: vi.fn(async () => undefined),
   whenReadyMock: vi.fn(async () => undefined)
 }));
 
@@ -35,6 +36,16 @@ vi.mock("../../main/windows/capture-window-runtime", () => ({
     return isDev
       ? "http://localhost:5173/capture.html"
       : "/tmp/desktop/out/renderer/capture.html";
+  }
+}));
+
+vi.mock("../../main/ipc/in-memory-desktop-ipc-services", () => ({
+  getDefaultDesktopIpcServices() {
+    return {
+      session: {
+        stopListening: stopListeningMock
+      }
+    };
   }
 }));
 
@@ -150,7 +161,10 @@ describe("desktop bootstrap", () => {
 
     mainWindow.emitClosed();
 
-    expect(destroyCaptureWindowMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(stopListeningMock).toHaveBeenCalledTimes(1);
+      expect(destroyCaptureWindowMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   test("BrowserWindow preload path is configured", async () => {

@@ -18,44 +18,50 @@ const SEGMENT_DURATION_SECONDS = 2;
 
 async function bootCaptureRenderer(): Promise<void> {
   const captureBridge = resolveCaptureBridge();
-  const stream = await requestCaptureStream();
+  try {
+    const stream = await requestCaptureStream();
 
-  const audioContext = new AudioContext({ sampleRate: 16_000 });
-  const source = audioContext.createMediaStreamSource(stream);
-  const processor = audioContext.createScriptProcessor(2048, 1, 1);
-  const silentGain = audioContext.createGain();
-  silentGain.gain.value = 0;
+    const audioContext = new AudioContext({ sampleRate: 16_000 });
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(2048, 1, 1);
+    const silentGain = audioContext.createGain();
+    silentGain.gain.value = 0;
 
-  const bridge = createAudioWorkletBridge({ captureBridge });
-  let activeSegmentId = createSegmentId();
-  let segmentSampleCount = 0;
-  const maxSegmentSamples = Math.floor(audioContext.sampleRate * SEGMENT_DURATION_SECONDS);
+    const bridge = createAudioWorkletBridge({ captureBridge });
+    let activeSegmentId = createSegmentId();
+    let segmentSampleCount = 0;
+    const maxSegmentSamples = Math.floor(audioContext.sampleRate * SEGMENT_DURATION_SECONDS);
 
-  processor.onaudioprocess = (event) => {
-    const chunk = Float32Array.from(event.inputBuffer.getChannelData(0));
-    if (chunk.length === 0) {
-      return;
-    }
+    processor.onaudioprocess = (event) => {
+      const chunk = Float32Array.from(event.inputBuffer.getChannelData(0));
+      if (chunk.length === 0) {
+        return;
+      }
 
-    segmentSampleCount += chunk.length;
-    const shouldCloseSegment = segmentSampleCount >= maxSegmentSamples;
+      segmentSampleCount += chunk.length;
+      const shouldCloseSegment = segmentSampleCount >= maxSegmentSamples;
 
-    bridge.forward({
-      segmentId: activeSegmentId,
-      samples: chunk,
-      sampleRate: audioContext.sampleRate,
-      isFinal: shouldCloseSegment
-    });
+      bridge.forward({
+        segmentId: activeSegmentId,
+        samples: chunk,
+        sampleRate: audioContext.sampleRate,
+        isFinal: shouldCloseSegment
+      });
 
-    if (shouldCloseSegment) {
-      activeSegmentId = createSegmentId();
-      segmentSampleCount = 0;
-    }
-  };
+      if (shouldCloseSegment) {
+        activeSegmentId = createSegmentId();
+        segmentSampleCount = 0;
+      }
+    };
 
-  source.connect(processor);
-  processor.connect(silentGain);
-  silentGain.connect(audioContext.destination);
+    source.connect(processor);
+    processor.connect(silentGain);
+    silentGain.connect(audioContext.destination);
+    captureBridge.reportReady();
+  } catch (error) {
+    captureBridge.reportError(error instanceof Error ? error.message : "Capture startup failed");
+    throw error;
+  }
 }
 
 function resolveCaptureBridge(): CaptureBridge {

@@ -29,9 +29,12 @@ export function registerIpc(services: DesktopIpcServices = getDefaultDesktopIpcS
   registerHandler(DesktopCommand.StartListening, async () => {
     await services.session.startListening();
     try {
-      ensureCaptureWindow();
+      await ensureCaptureWindow();
     } catch (error) {
       await services.session.stopListening().catch(() => undefined);
+      destroyCaptureWindow();
+      const { code, message } = toRuntimeErrorPayload(error);
+      services.runtime.publishError(code, message);
       throw error;
     }
   });
