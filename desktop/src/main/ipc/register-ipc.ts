@@ -32,9 +32,9 @@ function registerHandler<K extends DesktopCommandName>(
 
 export function registerIpc(services: DesktopIpcServices = getDefaultDesktopIpcServices()): void {
   registerHandler(DesktopCommand.StartListening, async () => {
-    await services.session.startListening();
     try {
       await ensureCaptureWindow();
+      await services.session.startListening();
     } catch (error) {
       await services.session.stopListening().catch(() => undefined);
       destroyCaptureWindow();

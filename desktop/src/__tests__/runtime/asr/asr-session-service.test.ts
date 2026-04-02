@@ -267,6 +267,56 @@ describe("task-9 asr session orchestration", () => {
     });
   });
 
+  test("updating recognition strategy while listening is blocked", async () => {
+    const services = createInMemoryDesktopIpcServices({ runner: createRunnerStub() });
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+    await invokeValidated(DesktopCommand.StartListening);
+
+    await expect(
+      invokeValidated(DesktopCommand.UpdateRecognitionStrategy, {
+        mode: "fixed",
+        fixedLanguage: "en"
+      })
+    ).rejects.toMatchObject({
+      code: "ASR_MODEL_SWITCH_BLOCKED_WHILE_LISTENING"
+    });
+  });
+
+  test("stop during a slow start does not publish listening true", async () => {
+    const loadModel = createDeferred<void>();
+    const runner: WhisperRunner = {
+      loadModel: vi.fn(() => loadModel.promise),
+      transcribe: vi.fn(async () => "transcript"),
+      reset: vi.fn()
+    };
+    const services = createInMemoryDesktopIpcServices({ runner });
+    const runtimeEvents: RuntimeEvent[] = [];
+    services.runtime.subscribe((event) => {
+      runtimeEvents.push(event);
+    });
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+    const startPromise = invokeValidated(DesktopCommand.StartListening);
+    await Promise.resolve();
+    const stopPromise = invokeValidated(DesktopCommand.StopListening);
+
+    loadModel.resolve();
+    await Promise.all([startPromise, stopPromise]);
+
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          event.type === "session:status" && event.payload.listening === true
+      )
+    ).toBe(false);
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: false }
+    });
+  });
+
   test("latest-only emotion processing suppresses stale in-flight results", async () => {
     const firstEmotion = createDeferred<EmotionResult>();
     const secondEmotion = createEmotionResult("trust", "latest utterance wins");

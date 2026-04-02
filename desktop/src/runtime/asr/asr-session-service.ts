@@ -11,6 +11,7 @@ import {
   type CaptureFrameSource
 } from "./capture-frame-source";
 import {
+  AsrWorkerError,
   createAsrWorker,
   type FinalTranscriptEvent,
   type PcmFrame,
@@ -71,6 +72,7 @@ export function createAsrSessionService(
   let phase: SessionPhase = "idle";
   let transition: Promise<void> | null = null;
   let unsubscribeCaptureSource: (() => void) | null = null;
+  let cancelPendingStart = false;
 
   const asrWorker = createAsrWorker({
     modelStore: options.modelStore,
@@ -99,6 +101,12 @@ export function createAsrSessionService(
       transition = (async () => {
         phase = "starting";
         await asrWorker.startListening();
+        if (cancelPendingStart) {
+          cancelPendingStart = false;
+          await asrWorker.stopListening();
+          phase = "idle";
+          return;
+        }
         ensureCaptureSubscription();
         phase = "listening";
         publishListeningStatus(true);
@@ -124,7 +132,11 @@ export function createAsrSessionService(
       }
 
       if (phase === "starting") {
+        cancelPendingStart = true;
         await transition;
+        if (phase !== "listening") {
+          return;
+        }
       }
 
       transition = (async () => {
@@ -149,6 +161,12 @@ export function createAsrSessionService(
       await asrWorker.switchModel(modelId);
     },
     async updateRecognitionStrategy(input) {
+      if (phase !== "idle") {
+        throw new AsrWorkerError(
+          "ASR_MODEL_SWITCH_BLOCKED_WHILE_LISTENING",
+          "Recognition strategy changes are disabled while listening"
+        );
+      }
       return asrWorker.updateRecognitionStrategy(input);
     },
     getRecognitionStrategy() {

@@ -181,6 +181,34 @@ describe("registerIpc", () => {
     expect(destroyCaptureWindowMock).toHaveBeenCalledTimes(1);
   });
 
+  test("capture-window startup failure does not publish a false listening state", async () => {
+    ensureCaptureWindowMock.mockRejectedValueOnce(new Error("capture boot failed"));
+    const services = createInMemoryDesktopIpcServices({
+      runner: createRunnerStub()
+    });
+    const runtimeEvents: RuntimeEvent[] = [];
+    services.runtime.subscribe((event) => {
+      runtimeEvents.push(event);
+    });
+    registerIpc(services);
+
+    await invokeValidated(DesktopCommand.DownloadAsrModel, { modelId: "whisper-base" });
+
+    await expect(invokeValidated(DesktopCommand.StartListening)).rejects.toThrow(
+      "capture boot failed"
+    );
+
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          event.type === "session:status" && event.payload.listening === true
+      )
+    ).toBe(false);
+    await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
+      status: { listening: false }
+    });
+  });
+
   test("capture worker failures publish runtime errors instead of being dropped", async () => {
     const services = createServices();
     services.session.handleCapturePcmFrame.mockRejectedValueOnce(
