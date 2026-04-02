@@ -12,6 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 let captureWindow: BrowserWindow | null = null;
+let captureWindowReady: Promise<BrowserWindow> | null = null;
 
 export function resolveCaptureEntry(isDev: boolean): string {
   if (isDev) {
@@ -25,7 +26,7 @@ export function ensureCaptureWindow(
   isDev = process.env.NODE_ENV === "development"
 ): Promise<BrowserWindow> {
   if (captureWindow && !captureWindow.isDestroyed()) {
-    return Promise.resolve(captureWindow);
+    return captureWindowReady ?? Promise.resolve(captureWindow);
   }
 
   captureWindow = createCaptureWindow({
@@ -34,8 +35,12 @@ export function ensureCaptureWindow(
   });
   captureWindow.on("closed", () => {
     captureWindow = null;
+    captureWindowReady = null;
   });
-  return waitForCaptureReady(captureWindow);
+  captureWindowReady = waitForCaptureReady(captureWindow).finally(() => {
+    captureWindowReady = null;
+  });
+  return captureWindowReady;
 }
 
 export function destroyCaptureWindow(): void {
@@ -45,6 +50,7 @@ export function destroyCaptureWindow(): void {
 
   const window = captureWindow;
   captureWindow = null;
+  captureWindowReady = null;
   if (window.isDestroyed()) {
     return;
   }

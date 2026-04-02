@@ -104,6 +104,29 @@ describe("captureWindowRuntime", () => {
     await expect(readyPromise).resolves.toBe(harness.window);
   });
 
+  test("concurrent ensureCaptureWindow calls share the same in-flight readiness promise", async () => {
+    vi.resetModules();
+    const harness = createFakeCaptureWindow();
+    createCaptureWindowMock.mockReturnValueOnce(harness.window);
+
+    const { ensureCaptureWindow } = await import("../../../main/windows/capture-window-runtime");
+    let secondSettled = false;
+    const firstPromise = ensureCaptureWindow(true);
+    const secondPromise = ensureCaptureWindow(true).then((window) => {
+      secondSettled = true;
+      return window;
+    });
+
+    await Promise.resolve();
+    expect(createCaptureWindowMock).toHaveBeenCalledTimes(1);
+    expect(secondSettled).toBe(false);
+
+    harness.emitStatus({ type: "ready" });
+
+    await expect(firstPromise).resolves.toBe(harness.window);
+    await expect(secondPromise).resolves.toBe(harness.window);
+  });
+
   test("ensureCaptureWindow rejects when capture startup reports an error", async () => {
     vi.resetModules();
     const harness = createFakeCaptureWindow();
