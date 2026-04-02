@@ -18,22 +18,30 @@ export function createRuntimeEventBus(initialSnapshot: RuntimeSnapshot): Runtime
   const listeners = new Set<(event: RuntimeEvent) => void>();
   let snapshot = cloneSnapshot(initialSnapshot);
 
+  function publishEvent(event: RuntimeEvent): void {
+    for (const listener of listeners) {
+      listener(event);
+    }
+
+    for (const window of electron.BrowserWindow?.getAllWindows?.() ?? []) {
+      window.webContents.send(DesktopEventChannel.RuntimeEvent, event);
+    }
+  }
+
   return {
     getSnapshot() {
       return cloneSnapshot(snapshot);
     },
     setSnapshot(nextSnapshot) {
       snapshot = cloneSnapshot(nextSnapshot);
+      publishEvent({
+        type: "runtime:snapshot",
+        payload: snapshot
+      });
       return cloneSnapshot(snapshot);
     },
     publish(event) {
-      for (const listener of listeners) {
-        listener(event);
-      }
-
-      for (const window of electron.BrowserWindow?.getAllWindows?.() ?? []) {
-        window.webContents.send(DesktopEventChannel.RuntimeEvent, event);
-      }
+      publishEvent(event);
     },
     subscribe(listener) {
       listeners.add(listener);

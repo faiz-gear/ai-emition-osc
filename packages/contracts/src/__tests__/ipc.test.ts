@@ -52,6 +52,20 @@ test("recognition strategy supports auto and fixed zh/en", () => {
 });
 
 test("runtime events are discriminated by type", () => {
+  const snapshotEvent: RuntimeEvent = {
+    type: "runtime:snapshot",
+    payload: {
+      status: { listening: true },
+      metrics: {
+        uptime_seconds: 1,
+        ws_clients: 0,
+        utterances_total: 0,
+        emotion_total: 0,
+        errors_total: 0
+      },
+      utterances: []
+    }
+  };
   const progressEvent: RuntimeEvent = {
     type: "asr:download-progress",
     payload: {
@@ -70,6 +84,10 @@ test("runtime events are discriminated by type", () => {
 
   if (progressEvent.type === "asr:download-progress") {
     expect(progressEvent.payload.totalBytes).toBe(100);
+  }
+
+  if (snapshotEvent.type === "runtime:snapshot") {
+    expect(snapshotEvent.payload.status.listening).toBe(true);
   }
 
   if (statusEvent.type === "asr:download-status") {

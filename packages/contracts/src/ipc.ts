@@ -125,6 +125,7 @@ export type DesktopCommandResponseMap = {
 };
 
 export type RuntimeEvent =
+  | { type: "runtime:snapshot"; payload: RuntimeSnapshot }
   | { type: "session:status"; payload: { listening: boolean } }
   | { type: "runtime:metrics"; payload: Metrics }
   | { type: "runtime:utterance"; payload: Utterance }

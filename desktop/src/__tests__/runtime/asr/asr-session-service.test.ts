@@ -9,6 +9,7 @@ import { registerIpc } from "../../../main/ipc/register-ipc";
 import { createInMemoryDesktopIpcServices } from "../../../main/ipc/in-memory-desktop-ipc-services";
 import { createCaptureBridge } from "../../../preload/desktop-api";
 import type { WhisperRunner } from "../../../runtime/asr/asr-worker";
+import { createCaptureFrameSource } from "../../../runtime/asr/capture-frame-source";
 import { CAPTURE_PCM_CHANNEL } from "../../../runtime/asr/capture-ipc";
 import type { EmotionService } from "../../../runtime/emotion/emotion-service";
 import type { OscService } from "../../../runtime/osc/osc-service";
@@ -114,8 +115,10 @@ describe("task-9 asr session orchestration", () => {
       sendEmotion: vi.fn(async () => undefined),
       close: vi.fn()
     } satisfies Pick<OscService, "sendEmotion" | "close">;
+    const captureSource = createCaptureFrameSource();
     const services = createInMemoryDesktopIpcServices({
       runner: createRunnerStub("final transcript"),
+      captureSource,
       emotionService,
       osc
     } as Parameters<typeof createInMemoryDesktopIpcServices>[0]);
@@ -133,6 +136,13 @@ describe("task-9 asr session orchestration", () => {
         type: "session:status",
         payload: { listening: true }
       });
+    });
+    expect(captureSource.getSubscriberCount()).toBe(1);
+    expect(runtimeEvents).toContainEqual({
+      type: "runtime:snapshot",
+      payload: expect.objectContaining({
+        status: { listening: true }
+      })
     });
 
     const captureListener = getCaptureListener();
@@ -203,6 +213,7 @@ describe("task-9 asr session orchestration", () => {
     await expect(services.runtime.getSnapshot()).resolves.toMatchObject({
       status: { listening: false }
     });
+    expect(captureSource.getSubscriberCount()).toBe(0);
 
     workletBridge.forward({
       segmentId: "segment-2",

@@ -7,6 +7,10 @@ import type {
 } from "@ai-emotion/contracts";
 import type { EmotionTaskQueue } from "../emotion/emotion-queue";
 import {
+  createCaptureFrameSource,
+  type CaptureFrameSource
+} from "./capture-frame-source";
+import {
   createAsrWorker,
   type FinalTranscriptEvent,
   type PcmFrame,
@@ -46,6 +50,7 @@ export type AsrSessionService = {
 
 type AsrSessionServiceOptions = {
   modelStore: AsrSessionModelStore;
+  captureSource?: CaptureFrameSource;
   emotionQueue: EmotionTaskQueue;
   runtime: RuntimeStateBus;
   runner?: WhisperRunner;
@@ -60,9 +65,11 @@ export function createAsrSessionService(
 ): AsrSessionService {
   const now = options.now ?? (() => new Date().toISOString());
   const nowMs = options.nowMs ?? (() => Date.now());
+  const captureSource = options.captureSource ?? createCaptureFrameSource();
   const emotionStartedAt = new Map<string, number>();
   let phase: SessionPhase = "idle";
   let transition: Promise<void> | null = null;
+  let unsubscribeCaptureSource: (() => void) | null = null;
 
   const asrWorker = createAsrWorker({
     modelStore: options.modelStore,
@@ -73,6 +80,7 @@ export function createAsrSessionService(
   return {
     async startListening() {
       if (phase === "listening") {
+        ensureCaptureSubscription();
         return;
       }
 
@@ -90,6 +98,7 @@ export function createAsrSessionService(
       transition = (async () => {
         phase = "starting";
         await asrWorker.startListening();
+        ensureCaptureSubscription();
         phase = "listening";
         publishListeningStatus(true);
       })().finally(() => {
@@ -103,6 +112,7 @@ export function createAsrSessionService(
     },
     async stopListening() {
       if (phase === "idle") {
+        detachCaptureSubscription();
         publishListeningStatus(false);
         return;
       }
@@ -118,6 +128,7 @@ export function createAsrSessionService(
 
       transition = (async () => {
         phase = "stopping";
+        detachCaptureSubscription();
         await asrWorker.stopListening();
         phase = "idle";
         publishListeningStatus(false);
@@ -131,7 +142,7 @@ export function createAsrSessionService(
       await transition;
     },
     async handleCapturePcmFrame(frame) {
-      await asrWorker.handlePcmFrame(frame);
+      await captureSource.dispatch(frame);
     },
     async switchModel(modelId) {
       await asrWorker.switchModel(modelId);
@@ -260,6 +271,21 @@ export function createAsrSessionService(
       type: "session:status",
       payload: { listening }
     });
+  }
+
+  function ensureCaptureSubscription(): void {
+    if (unsubscribeCaptureSource) {
+      return;
+    }
+
+    unsubscribeCaptureSource = captureSource.subscribe(async (frame) => {
+      await asrWorker.handlePcmFrame(frame);
+    });
+  }
+
+  function detachCaptureSubscription(): void {
+    unsubscribeCaptureSource?.();
+    unsubscribeCaptureSource = null;
   }
 
   function createQueuedUtterance(event: FinalTranscriptEvent): Utterance {

@@ -9,6 +9,10 @@ import type {
 } from "@ai-emotion/contracts";
 import { AsrWorkerError, type WhisperRunner } from "../../runtime/asr/asr-worker";
 import { createAsrSessionService } from "../../runtime/asr/asr-session-service";
+import {
+  createCaptureFrameSource,
+  type CaptureFrameSource
+} from "../../runtime/asr/capture-frame-source";
 import { listAsrModelCatalog } from "../../runtime/asr/model-catalog";
 import {
   EmotionTaskQueue,
@@ -53,6 +57,7 @@ function createInitialSnapshot(): RuntimeSnapshot {
 
 export type CreateInMemoryDesktopIpcServicesOptions = {
   runner?: WhisperRunner;
+  captureSource?: CaptureFrameSource;
   emotionService?: Pick<EmotionService, "analyzeText">;
   osc?: Pick<OscService, "sendEmotion" | "close">;
 };
@@ -67,6 +72,7 @@ export function createInMemoryDesktopIpcServices(
     providers: []
   };
   const emotionQueue = new EmotionTaskQueue(QUEUE_POLICY_LATEST, 1);
+  const captureSource = options.captureSource ?? createCaptureFrameSource();
   const emotionService = options.emotionService ?? createNeutralEmotionService();
   const osc = options.osc ?? createNoopOscService();
   const session = createAsrSessionService({
@@ -94,6 +100,7 @@ export function createInMemoryDesktopIpcServices(
         }));
       }
     },
+    captureSource,
     runner: options.runner,
     emotionQueue,
     runtime: runtimeEventBus
