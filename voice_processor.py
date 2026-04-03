@@ -1,16 +1,17 @@
 # voice_processor.py
+import asyncio
 import os
 import time
-import asyncio
-from typing import Optional, List, Dict, Any
+import xml.etree.ElementTree as ET
 from pathlib import Path
-from pydantic import BaseModel, Field
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
+from typing import Any, Dict, List, Optional
+
 from langchain.callbacks.manager import CallbackManager
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_ollama import ChatOllama
+from pydantic import BaseModel, Field
 from pythonosc import udp_client
-import xml.etree.ElementTree as ET
 
 # ============== 配置区 ==============
 # 从环境变量读取配置，如果不存在则使用默认值
@@ -20,7 +21,7 @@ INPUT_DIR = Path(
 OSC_IP = os.environ.get("AI_EMOTION_OSC_IP", "127.0.0.1")
 OSC_PORT = int(os.environ.get("AI_EMOTION_OSC_PORT", "7000"))
 POLL_INTERVAL = float(os.environ.get("AI_EMOTION_POLL_INTERVAL", "1"))  # 轮询间隔（秒）
-LLM_MODEL = os.environ.get("AI_EMOTION_LLM_MODEL", "deepseek-r1:1.5b")
+LLM_MODEL = os.environ.get("AI_EMOTION_LLM_MODEL", "qwen2.5:3b")
 LLM_TEMPERATURE = float(os.environ.get("AI_EMOTION_LLM_TEMPERATURE", "0.6"))
 # ===================================
 

@@ -1,161 +1,229 @@
-# AI 中文语音情绪分析系统
+# AI Emotion Desktop
 
-## 项目简介
+本项目的迁移主方向是 **Electron 桌面应用 + Next.js renderer + typed IPC + 本地 Whisper ASR**。  
+当前分支已经完成 renderer 到 preload/IPC 的主链路切换，不再依赖本地 HTTP / WebSocket 服务；但 Electron 默认 bootstrap 仍接在 `desktop/src/main/ipc/in-memory-desktop-ipc-services.ts`，用于验证桌面交互合同与 UI 流程。`desktop/src/runtime` 下的 Whisper / Provider / OSC / 持久化模块代表目标桌面运行时能力，但在本分支里还不应被表述为“默认 shipped runtime 已完全接线并完成 parity”。
 
-本项目是一个基于 AI 的实时中文语音情绪分析系统，集成了语音识别（Vosk）、大语言模型（LLM，基于 LangChain 和 Ollama）情绪分析，以及 OSC 协议与多媒体软件（如 TouchDesigner）联动。系统可实时识别中文语音，分析文本情绪，并输出量化的情绪值。
+## 当前架构
 
-## 功能特性
+核心链路：
 
-- **实时中文语音识别**（Vosk）
-- **情绪分析**：基于大语言模型，结合自定义提示词模板，细致分析中文文本情绪
-- **OSC 协议**：将情绪值通过 OSC 发送到外部应用（如 TouchDesigner）
-- **模块化设计**：语音识别与情绪分析解耦，便于扩展
-- **一键环境与模型自动配置**（setup.py）
-- **Docker 支持**：提供 Dockerfile 实现容器化部署
-- **环境变量配置**：通过环境变量控制各项参数，便于不同环境部署
+1. Electron `main` 进程注册 typed IPC 命令 / 事件，并创建桌面窗口
+2. `preload` 通过 `contextBridge` 暴露 `window.desktopApi` 与采集桥接 API
+3. Next.js renderer 使用 `client/lib/desktop/desktop-client.ts` 访问桌面能力
+4. 当前默认 bootstrap 使用 in-memory desktop IPC services 驱动 renderer 与设置流程
+5. `desktop/src/runtime` 中已经实现 Whisper / Provider / OSC / 持久化相关模块，作为目标桌面运行时接线路径
 
-## 目录结构
+### 当前接线状态
 
+- renderer 与 settings 主链路已经通过 preload + typed IPC 工作
+- 默认 Electron bootstrap 仍使用 `getDefaultDesktopIpcServices()`，来源于 `desktop/src/main/ipc/in-memory-desktop-ipc-services.ts`
+- `desktop/src/runtime` 下的 SQLite、加密存储、Whisper 下载/管理、OSC 等模块已存在，但 README 下面提到的这些能力应理解为 **目标桌面 runtime 设计与代码路径**，不是本分支里已经完成真实人工验收的 shipped 默认行为
+- 手工 smoke parity 仍待在有 GUI、麦克风和可用 Provider 的环境中验证
+
+主工作区结构：
+
+```text
+ai-emotion/
+├── client/              # Next.js renderer（静态导出后供 Electron 加载）
+├── desktop/             # Electron main / preload / runtime / capture window
+├── packages/contracts/  # renderer 与 desktop 共享的 IPC / domain 合同
+├── client-dist/         # 生产构建后拷贝出的 renderer 静态资源
+├── server/              # 旧版 Python/FastAPI 运行时（deprecated）
+├── main.py              # 旧版 Python CLI 入口（deprecated）
+├── speech_recognizer.py # 旧版 Vosk 识别链路（deprecated）
+├── voice_processor.py   # 旧版 Python 情绪处理链路（deprecated）
+├── start.bat            # 旧版 Windows 启动脚本（deprecated）
+└── dev.bat              # 旧版 Windows 开发脚本（deprecated）
 ```
-.
-├── main.py                  # 程序入口，运行语音-情绪分析主流程
-├── speech_recognizer.py     # 实时语音识别模块（Vosk）
-├── voice_processor.py       # 情绪分析与OSC输出模块
-├── prompt_template.txt      # LLM情绪分析提示词模板
-├── requirements.txt         # 依赖库列表
-├── setup.py                 # 一键环境与模型配置脚本
-├── Dockerfile               # Docker镜像构建文件
-├── .env.example             # 环境变量配置示例
-├── vosk-model-small-cn/     # Vosk中文模型（自动下载）
-└── ...
-```
 
-## 安装说明
+### Electron 桌面分层
 
-### 方法一：本地安装
+| 层 | 位置 | 责任 |
+| --- | --- | --- |
+| Contracts | `packages/contracts` | 定义 IPC 命令、运行时事件、ASR / Provider / domain 类型 |
+| Main | `desktop/src/main` | Electron 窗口生命周期、IPC 注册、桌面 runtime 装配 |
+| Preload | `desktop/src/preload` | 通过 `contextBridge` 暴露受控桌面 API，隔离 renderer 与原生 Electron |
+| Runtime | `desktop/src/runtime` | 目标桌面 runtime 模块：Whisper ASR、模型下载、Provider 存储与加密、情绪推断、OSC 输出 |
+| Renderer | `client` | 控制台与设置页面；通过 desktop client 订阅 snapshot / runtime events |
 
-1. **克隆本仓库**，进入项目目录。
-2. **运行一键配置脚本**（自动安装依赖并下载 Vosk 模型）：
+> 设计约束：桌面主路径不再提供 HTTP / WebSocket 兼容层；renderer 不应直接调用裸 Electron API。
 
-   ```bash
-   python setup.py
-   ```
+## 环境要求
 
-3. **（可选）手动安装依赖**：
+- Node.js 20+ 与 npm
+- macOS 或 Windows（桌面端主路径）
+- 可用麦克风设备
+- 至少一个情绪推断 Provider（例如 Ollama、OpenAI 或 OpenAI-compatible）
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 快速开始
 
-### 方法二：Docker 部署
-
-1. **构建 Docker 镜像**：
-
-   ```bash
-   docker build -t ai-emotion .
-   ```
-
-2. **运行容器**：
-
-   ```bash
-   docker run -it --rm \
-     --device /dev/snd \
-     -e AI_EMOTION_OSC_IP=192.168.1.100 \
-     -v /path/to/data:/data \
-     ai-emotion
-   ```
-
-   > 注意：需要将 `--device /dev/snd` 添加以允许容器访问宿主机的音频设备。根据需要修改环境变量和挂载卷。
-
-## 使用方法
-
-1. **启动系统**：
-
-   ```bash
-   python main.py
-   ```
-
-2. **对着麦克风说话**，系统将：
-
-   - 实时识别语音内容
-   - 分析识别文本的情绪
-   - 输出情绪值与简要解释
-   - 通过 OSC 协议发送情绪值到配置的 IP/端口
-
-3. **停止程序**：按 `Ctrl+C`
-
-## 配置说明
-
-### 环境变量配置
-
-系统支持通过环境变量配置各项参数，可以复制 `.env.example` 为 `.env` 并根据需要修改：
+### 1. 安装依赖
 
 ```bash
-# 复制环境变量示例文件
-cp .env.example .env
-
-# 根据需要编辑配置
-nano .env
-
-# 启动时加载环境变量
-source .env && python main.py
+npm install
 ```
 
-主要环境变量说明：
+### 2. 开发模式
 
-| 环境变量               | 说明             | 默认值                |
-| ---------------------- | ---------------- | --------------------- |
-| AI_EMOTION_INPUT_DIR   | 输入文件目录     | /opt/ai-emotion/input |
-| AI_EMOTION_OSC_IP      | OSC 服务 IP 地址 | 127.0.0.1             |
-| AI_EMOTION_OSC_PORT    | OSC 服务端口     | 7000                  |
-| AI_EMOTION_LLM_MODEL   | LLM 模型名称     | deepseek-r1:1.5b      |
-| AI_EMOTION_VOSK_MODEL  | 语音识别模型路径 | vosk-model-small-cn   |
-| AI_EMOTION_SAMPLE_RATE | 音频采样率       | 16000                 |
+桌面开发模式需要同时启动 renderer 与 Electron：
 
-完整环境变量列表请参考 `.env.example` 文件。
+终端 A：
 
-### 传统配置
-
-- **Vosk 模型**：中文模型自动下载至`vosk-model-small-cn/`
-- **OSC 输出**：默认 IP 为`127.0.0.1`，端口为`7000`
-- **LLM 模型**：默认使用`deepseek-r1:1.5b`（Ollama）
-
-## 情绪分析提示词模板
-
-LLM 通过详细的提示词模板（`prompt_template.txt`）进行情绪分析，输出格式如下：
-
-```json
-{
-    "emotion_value": <-1到1之间的浮点数>,
-    "brief_explanation": "<一句话解释>"
-}
+```bash
+cd client
+npm run dev
 ```
 
-示例：
+终端 B：
 
-```json
-{
-  "emotion_value": 0.85,
-  "brief_explanation": "表达了强烈的喜悦和满足感"
-}
+```bash
+npm run desktop:dev
 ```
 
-## 依赖环境
+说明：
 
-主要依赖（详见`requirements.txt`）：
+- renderer 开发服务器默认运行在 `http://localhost:3000`
+- `desktop:dev` 会启动 Electron main / preload 与 capture renderer
+- 桌面主窗口通过 preload 暴露的 `window.desktopApi` 与运行时通信
 
-- `vosk`, `sounddevice`, `numpy`（语音识别）
-- `langchain`, `langchain-ollama`, `langchain-community`（LLM 接口）
-- `beautifulsoup4`（文本清洗）
-- `python-osc`（OSC 协议）
-- `tqdm`, `requests`（环境与模型下载）
+### 3. 生产构建
 
-## 注意事项
+构建完整桌面产物：
 
-- 请确保麦克风可用且已连接
-- 系统仅支持中文语音输入
-- 建议本地部署 Ollama 并下载所需模型以获得最佳效果
+```bash
+npm run build
+```
 
-## 许可证
+这会依次：
 
-[请在此处补充您的许可证信息]
+1. 构建 `@ai-emotion/contracts`
+2. 构建并静态导出 `client`
+3. 将导出的 renderer 拷贝到 `client-dist/`
+4. 构建 `desktop/out/` 下的 Electron main / preload / capture 产物
+
+如果只想单独构建桌面端：
+
+```bash
+npm run desktop:build
+```
+
+## 根工作区常用命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `npm install` | 安装根工作区依赖，并为 Electron 原生依赖执行本地编译 |
+| `npm run test --workspace @ai-emotion/contracts` | 运行共享 contracts 测试 |
+| `npm run test --workspace @ai-emotion/desktop` | 运行桌面 runtime / IPC / main 测试 |
+| `cd client && npm run lint` | 运行 renderer ESLint |
+| `cd client && npm run test:unit` | 运行 renderer 单元测试 |
+| `cd client && npm run build` | 单独构建 Next.js renderer |
+| `npm run desktop:build` | 构建 Electron 桌面产物 |
+| `npm run build` | 执行完整 workspace 构建 |
+
+Task 13 验证命令：
+
+```bash
+npm install
+npm run test --workspace @ai-emotion/contracts
+npm run test --workspace @ai-emotion/desktop
+cd client
+npm run lint
+npm run test:unit
+npm run build
+cd ..
+npm run desktop:build
+```
+
+## ASR 模型下载与识别策略
+
+桌面 runtime 目标路径使用 **本地 Whisper 模型**，对应模型目录设计为 Electron user-data 下的 runtime 路径（`asr-models`）。
+
+当前内置模型目录：
+
+- `whisper-tiny`
+- `whisper-base`（推荐默认）
+- `whisper-small`
+
+目标行为说明：
+
+- 在真实 desktop runtime 接线完成后，首次启动若没有已安装模型，用户应先到 **Settings → ASR Models** 下载至少一个模型
+- 下载流程设计为通过运行时事件回传 `queued / downloading / verifying / ready / failed` 状态和进度
+- 第一个完成下载的模型会成为可用模型；激活中的模型不能删除
+- 开始监听前必须存在一个 ready 的模型，否则运行时会返回 `ASR_MODEL_NOT_INSTALLED`
+- 模型切换与识别策略变更只允许在 **idle / 未监听** 状态下执行
+
+### 识别策略
+
+设置页支持两种识别策略：
+
+- `auto`：自动检测
+- `fixed`：固定语言
+
+固定语言当前只支持：
+
+- `zh`
+- `en`
+
+Phase 1 不要求 live partial transcript；dashboard 以 finalized transcript 为主。
+
+## 桌面设置面板
+
+`/settings` 当前已经暴露这些桌面设置入口：
+
+1. **Language**  
+   切换 UI 本地化语言（`en` / `zh`）
+
+2. **ASR Models**  
+   下载、查看进度、激活、删除本地 Whisper 模型；监听中会阻止切换和删除
+
+3. **Recognition Strategy**  
+   在自动检测与固定语言之间切换；监听中会阻止修改
+
+4. **Providers**  
+   管理情绪推断 Provider（创建 / 更新 / 测试 / 激活 / 删除）
+
+桌面路径下，renderer 不再要求用户配置本地 API / WebSocket endpoint。
+
+## Provider、持久化与 OSC
+
+以下是 `desktop/src/runtime` 已实现的目标能力：
+
+- Provider 配置目标存储为桌面 runtime 的 SQLite 数据库
+- 敏感字段目标行为是先加密，再持久化到 SQLite（encrypted at rest）
+- 情绪推断结果目标行为是在 dashboard 中展示，并可通过 OSC 输出到外部应用
+- 默认 OSC 配置设计为 `127.0.0.1:9000`
+
+这些能力在代码中已经存在，但本分支尚未通过真实桌面 smoke 验证证明“默认 bootstrap 已完整接线并可端到端使用”。
+
+## Legacy Python / Vosk 路径（Deprecated）
+
+以下内容目前仅为临时保留，不再是主运行路径：
+
+- `server/`
+- `main.py`
+- `speech_recognizer.py`
+- `voice_processor.py`
+- `start.bat`
+- `dev.bat`
+
+这些旧入口对应的是 **Python + FastAPI + Vosk + HTTP/WebSocket** 方案。  
+Electron 桌面路径完成实机 parity 验证前，它们会暂时共存；在 parity 被确认后，应继续移除或归档这些 legacy 入口。
+
+> 新功能与后续维护默认应落在 Electron 桌面主路径，不要再为旧版 Python/Vosk 主链路扩展能力。
+
+## 手工 Smoke 验证清单
+
+当前状态：自动化验证已完成；下面这组 GUI / 设备相关验证仍待人工执行并记录结果。
+
+在有图形界面、麦克风与可用 Provider 的环境中，建议按以下顺序验证：
+
+1. 空模型状态是否引导用户先下载模型
+2. 模型下载是否显示实时进度
+3. 模型激活是否仅在 idle 状态允许
+4. Start / Stop listening 是否工作
+5. Final transcript 是否出现在 dashboard
+6. Emotion inference result 是否出现
+7. Provider 管理是否工作
+8. OSC 输出是否发出
+
+如果要退休 legacy Python 路径，请先完成上述 parity 验证。

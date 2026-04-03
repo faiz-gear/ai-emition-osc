@@ -1,0 +1,102 @@
+<style>
+  .fx-wrap { display:grid; gap:14px; }
+  .fx-card {
+    border:1px solid #e3e6ec;
+    border-radius:12px;
+    background:#ffffff;
+    padding:12px;
+  }
+  .fx-label {
+    font-size:11px;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    color:#667085;
+    margin-bottom:8px;
+  }
+  .fx-text {
+    font-size:14px;
+    line-height:1.55;
+    color:#111827;
+  }
+  .fx-a {
+    position:relative;
+    display:inline-block;
+    background:linear-gradient(110deg,#111827 0%,#111827 40%,#64748b 50%,#111827 60%,#111827 100%);
+    background-size:220% 100%;
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+    animation:sweep 1.9s linear infinite;
+  }
+  .fx-b {
+    display:inline-block;
+    border-right:2px solid #94a3b8;
+    padding-right:4px;
+    animation:blink .9s steps(1) infinite;
+  }
+  .fx-c {
+    display:inline-block;
+    color:#0f172a;
+    text-shadow:0 0 0 rgba(15,23,42,0);
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes sweep {
+    from { background-position:200% 0; }
+    to { background-position:-20% 0; }
+  }
+  @keyframes blink {
+    0%,49% { border-color:#94a3b8; }
+    50%,100% { border-color:transparent; }
+  }
+  @keyframes pulse {
+    0%,100% { opacity:.78; transform:translateY(0); }
+    50% { opacity:1; transform:translateY(-.3px); text-shadow:0 0 14px rgba(99,102,241,.14); }
+  }
+</style>
+
+<h2>Live Transcript Effect Options</h2>
+<p class="subtitle">Choose the streaming text effect for “正在处理” state.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Shimmer Sweep (Recommended)</h3>
+      <p>最接近 Codex 的“流动处理感”，专业且克制。</p>
+      <div class="fx-wrap">
+        <div class="fx-card">
+          <div class="fx-label">processing...</div>
+          <div class="fx-text"><span class="fx-a">正在进行语音识别与情绪推理，请稍候...</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Type Cursor</h3>
+      <p>输入光标感更强，偏“编码终端”风格。</p>
+      <div class="fx-wrap">
+        <div class="fx-card">
+          <div class="fx-label">processing...</div>
+          <div class="fx-text"><span class="fx-b">正在进行语音识别与情绪推理，请稍候...</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Soft Pulse</h3>
+      <p>最稳重，动效最轻，但“流式”感较弱。</p>
+      <div class="fx-wrap">
+        <div class="fx-card">
+          <div class="fx-label">processing...</div>
+          <div class="fx-text"><span class="fx-c">正在进行语音识别与情绪推理，请稍候...</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
