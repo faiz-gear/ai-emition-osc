@@ -130,8 +130,7 @@ export function UtteranceStreamPanel({
         >
           <AnimatePresence initial={false}>
             {utterances.map((utterance) => {
-              const content =
-                (utterance.final_text ?? utterance.partial_text ?? "").trim() || t("emptyUtterance");
+              const content = (utterance.final_text ?? "").trim() || t("emptyUtterance");
               const selected = selectedId === utterance.id;
               const expanded = expandedLookup.has(utterance.id);
               const canExpand = content.length > 96;

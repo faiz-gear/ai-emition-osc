@@ -21,6 +21,29 @@ const fixtures = [
 ] as const;
 
 describe("UtteranceStreamPanel", () => {
+  it("does not surface partial-only desktop transcript text", () => {
+    render(
+      <UtteranceStreamPanel
+        followLatest
+        selectedId="u-3"
+        utterances={[
+          {
+            id: "u-3",
+            started_at: "2026-03-19T10:00:02Z",
+            emotion_status: "queued",
+            partial_text: "desktop partial only",
+            final_text: null,
+          },
+        ]}
+        onToggleFollow={vi.fn()}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("desktop partial only")).not.toBeInTheDocument();
+    expect(screen.getByText("(empty)")).toBeInTheDocument();
+  });
+
   it("calls onToggleFollow(false) when user manually selects another utterance", async () => {
     const onToggleFollow = vi.fn();
     const onSelect = vi.fn();

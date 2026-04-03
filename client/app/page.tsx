@@ -32,7 +32,6 @@ import {
 } from "@/lib/dashboard/utterance-utils";
 import type {
   AsrFinalEvent,
-  AsrPartialEvent,
   EmotionDroppedEvent,
   EmotionResultEvent,
   EmotionStartEvent,
@@ -49,7 +48,6 @@ type DashboardState = {
   status: StatusResponse | null;
   metrics: Metrics | null;
   utterances: Utterance[];
-  currentPartial: string;
   lastTranscriptUpdateMs: number | null;
 };
 
@@ -57,7 +55,6 @@ type Action =
   | { type: "SNAPSHOT"; payload: SnapshotPayload }
   | { type: "STATUS"; payload: StatusResponse }
   | { type: "METRICS"; payload: Metrics }
-  | { type: "ASR_PARTIAL"; payload: AsrPartialEvent }
   | { type: "ASR_FINAL"; payload: AsrFinalEvent }
   | { type: "EMOTION_START"; payload: EmotionStartEvent }
   | { type: "EMOTION_RESULT"; payload: EmotionResultEvent }
@@ -67,20 +64,55 @@ const initialState: DashboardState = {
   status: null,
   metrics: null,
   utterances: [],
-  currentPartial: "",
   lastTranscriptUpdateMs: null,
 };
+
+function parseTranscriptTimestamp(value?: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function hasFinalTranscript(utterance: Utterance): boolean {
+  return Boolean(utterance.final_text?.trim());
+}
+
+function normalizeDesktopUtterances(utterances: Utterance[]): Utterance[] {
+  return normalizeAndSortUtterances(
+    utterances
+      .filter(hasFinalTranscript)
+      .map((utterance) => ({
+        ...utterance,
+        partial_text: null,
+      })),
+  );
+}
+
+function getLastTranscriptUpdateMs(utterances: Utterance[]): number | null {
+  const latestFinalizedUtterance = utterances[0];
+  if (!latestFinalizedUtterance) {
+    return null;
+  }
+
+  return (
+    parseTranscriptTimestamp(
+      latestFinalizedUtterance.ended_at ?? latestFinalizedUtterance.started_at,
+    ) ?? null
+  );
+}
 
 function reducer(state: DashboardState, action: Action): DashboardState {
   switch (action.type) {
     case "SNAPSHOT": {
-      const utterances = normalizeAndSortUtterances(action.payload.utterances ?? []);
+      const utterances = normalizeDesktopUtterances(action.payload.utterances ?? []);
       return {
         status: action.payload.status,
         metrics: action.payload.status.metrics,
         utterances,
-        currentPartial: utterances[0]?.partial_text ?? "",
-        lastTranscriptUpdateMs: utterances.length > 0 ? Date.now() : null,
+        lastTranscriptUpdateMs: getLastTranscriptUpdateMs(utterances),
       };
     }
     case "STATUS":
@@ -91,25 +123,8 @@ function reducer(state: DashboardState, action: Action): DashboardState {
       };
     case "METRICS":
       return { ...state, metrics: action.payload };
-    case "ASR_PARTIAL": {
-      const utterances = normalizeAndSortUtterances(
-        upsertUtterance(state.utterances, {
-          id: action.payload.utterance_id,
-          started_at: action.payload.started_at,
-          partial_text: action.payload.partial_text,
-          final_text: null,
-          emotion_status: "queued",
-        }),
-      );
-      return {
-        ...state,
-        utterances,
-        currentPartial: action.payload.partial_text,
-        lastTranscriptUpdateMs: Date.now(),
-      };
-    }
     case "ASR_FINAL": {
-      const utterances = normalizeAndSortUtterances(
+      const utterances = normalizeDesktopUtterances(
         upsertUtterance(state.utterances, {
           id: action.payload.utterance_id,
           started_at: action.payload.started_at,
@@ -122,12 +137,13 @@ function reducer(state: DashboardState, action: Action): DashboardState {
       return {
         ...state,
         utterances,
-        currentPartial: "",
-        lastTranscriptUpdateMs: Date.now(),
+        lastTranscriptUpdateMs:
+          parseTranscriptTimestamp(action.payload.ended_at ?? action.payload.started_at) ??
+          Date.now(),
       };
     }
     case "EMOTION_START": {
-      const utterances = normalizeAndSortUtterances(
+      const utterances = normalizeDesktopUtterances(
         upsertUtterance(state.utterances, {
           id: action.payload.utterance_id,
           emotion_status: "processing",
@@ -136,7 +152,7 @@ function reducer(state: DashboardState, action: Action): DashboardState {
       return { ...state, utterances };
     }
     case "EMOTION_RESULT": {
-      const utterances = normalizeAndSortUtterances(
+      const utterances = normalizeDesktopUtterances(
         upsertUtterance(state.utterances, {
           id: action.payload.utterance_id,
           emotion: action.payload.emotion,
@@ -147,7 +163,7 @@ function reducer(state: DashboardState, action: Action): DashboardState {
       return { ...state, utterances };
     }
     case "EMOTION_DROPPED": {
-      const utterances = normalizeAndSortUtterances(
+      const utterances = normalizeDesktopUtterances(
         upsertUtterance(state.utterances, {
           id: action.payload.utterance_id,
           emotion_status: "dropped",
@@ -169,9 +185,6 @@ function mapEventToAction(event: EventEnvelope): Action | null {
   }
   if (event.type === "metrics") {
     return { type: "METRICS", payload: event.data as Metrics };
-  }
-  if (event.type === "asr_partial") {
-    return { type: "ASR_PARTIAL", payload: event.data as AsrPartialEvent };
   }
   if (event.type === "asr_final") {
     return { type: "ASR_FINAL", payload: event.data as AsrFinalEvent };
@@ -450,11 +463,11 @@ export default function DashboardPage() {
 
   const latestUtterance = state.utterances[0] ?? null;
 
-  const liveText =
-    (state.currentPartial || latestUtterance?.final_text || latestUtterance?.partial_text || "").trim();
+  const liveText = (latestUtterance?.final_text ?? "").trim();
 
   const isProcessing =
-    Boolean(state.currentPartial.trim()) || latestUtterance?.emotion_status === "processing";
+    Boolean(latestUtterance?.final_text?.trim()) &&
+    latestUtterance?.emotion_status === "processing";
 
   const freshness = deriveFreshness(state.lastTranscriptUpdateMs, nowMs);
 

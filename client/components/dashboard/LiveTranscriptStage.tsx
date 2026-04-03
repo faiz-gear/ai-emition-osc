@@ -30,8 +30,7 @@ export function LiveTranscriptStage({
 }: LiveTranscriptStageProps) {
   const { locale, t } = useI18n();
   const trimmedText = text.trim();
-  const isBooting = !lastUpdatedAt && trimmedText.length === 0;
-  const isEmpty = !isBooting && trimmedText.length === 0;
+  const isEmpty = trimmedText.length === 0;
   const displayText = trimmedText || t("waitingForSpeech");
   const freshnessLabel =
     freshness === "LIVE"
@@ -62,22 +61,14 @@ export function LiveTranscriptStage({
         </div>
       </div>
 
-      {isBooting ? (
-        <div className="mt-4 space-y-2" aria-live="polite">
-          <div className="h-4 w-[82%] animate-pulse rounded bg-zinc-900/10" />
-          <div className="h-4 w-[68%] animate-pulse rounded bg-zinc-900/10" />
-          <div className="h-4 w-[74%] animate-pulse rounded bg-zinc-900/10" />
-        </div>
-      ) : (
-        <p
-          data-testid="live-transcript-text"
-          className={`mt-4 min-h-12 rounded-2xl border border-[color:rgba(21,26,23,0.08)] bg-[color:rgba(255,255,255,0.75)] px-4 py-3 text-sm leading-6 text-[color:var(--text-primary)] ${
-            isProcessing ? "transcript-shimmer" : ""
-          }`}
-        >
-          {displayText}
-        </p>
-      )}
+      <p
+        data-testid="live-transcript-text"
+        className={`mt-4 min-h-12 rounded-2xl border border-[color:rgba(21,26,23,0.08)] bg-[color:rgba(255,255,255,0.75)] px-4 py-3 text-sm leading-6 text-[color:var(--text-primary)] ${
+          isProcessing ? "transcript-shimmer" : ""
+        }`}
+      >
+        {displayText}
+      </p>
 
       {isEmpty ? (
         <p className="mt-2 text-xs leading-relaxed text-[color:var(--text-secondary)]">
