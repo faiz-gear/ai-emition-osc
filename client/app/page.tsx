@@ -11,13 +11,14 @@ import React, {
 
 import { AppShell } from "@/components/navigation/AppShell";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
-import { loadRuntimeConfig } from "@/lib/config";
 import {
   COMMAND_TIMEOUT_MS,
   FRESHNESS_THRESHOLDS_MS,
   type Freshness,
 } from "@/lib/dashboard/types";
 import { createCommandTracker, withCommandTimeout } from "@/lib/dashboard/command-control";
+import { getDesktopClient, type DesktopRuntimeClient } from "@/lib/desktop/desktop-client";
+import { mapRuntimeEventToEnvelopes, mapRuntimeSnapshot } from "@/lib/desktop/desktop-events";
 import {
   applyErrorEvent,
   deriveErrorVisibility,
@@ -29,7 +30,6 @@ import {
   pickSelectedUtteranceId,
   upsertUtterance,
 } from "@/lib/dashboard/utterance-utils";
-import { useEventStream } from "@/lib/useEventStream";
 import type {
   AsrFinalEvent,
   AsrPartialEvent,
@@ -43,6 +43,7 @@ import type {
   StatusResponse,
   Utterance,
 } from "@/lib/types";
+import type { ConnectionState } from "@/lib/useEventStream";
 
 type DashboardState = {
   status: StatusResponse | null;
@@ -212,23 +213,7 @@ function normalizeErrorMessage(error: unknown): string {
   return "unknown-error";
 }
 
-async function postJson(apiBase: string, path: string, signal: AbortSignal) {
-  const response = await fetch(`${apiBase}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    signal,
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || `Request failed: ${response.status}`);
-  }
-
-  return (await response.json()) as StatusResponse;
-}
-
 export default function DashboardPage() {
-  const [runtimeConfig] = useState(() => loadRuntimeConfig().config);
   const [state, dispatch] = useReducer(reducer, initialState);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [followLatest, setFollowLatest] = useState(true);
@@ -238,8 +223,11 @@ export default function DashboardPage() {
   const [errorState, setErrorState] = useState<ErrorState | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isMobile, setIsMobile] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
 
+  const desktopClientRef = useRef<DesktopRuntimeClient | null>(null);
   const commandTrackerRef = useRef(createCommandTracker());
+  const latestStatusRef = useRef<StatusResponse | null>(null);
   const previousStatusErrorRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -277,21 +265,110 @@ export default function DashboardPage() {
       return;
     }
 
+    if (event.type === "snapshot") {
+      latestStatusRef.current = (event.data as SnapshotPayload).status;
+    } else if (event.type === "status") {
+      latestStatusRef.current = event.data as StatusResponse;
+    } else if (event.type === "metrics" && latestStatusRef.current) {
+      latestStatusRef.current = {
+        ...latestStatusRef.current,
+        metrics: event.data as Metrics,
+      };
+    }
+
     const action = mapEventToAction(event);
     if (action) {
       dispatch(action);
     }
   }, []);
 
-  const { connectionState } = useEventStream(runtimeConfig.wsUrl, onEvent);
+  useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
+    let disposed = false;
 
-  const runListeningCommand = useCallback(async (path: string, kind: "start" | "stop") => {
+    const bootstrap = async () => {
+      try {
+        const desktopClient = getDesktopClient();
+        if (disposed) {
+          return;
+        }
+
+        desktopClientRef.current = desktopClient;
+        unsubscribe = desktopClient.subscribe((runtimeEvent) => {
+          for (const mappedEvent of mapRuntimeEventToEnvelopes(
+            runtimeEvent,
+            latestStatusRef.current,
+          )) {
+            onEvent(mappedEvent);
+          }
+        });
+
+        const snapshot = await desktopClient.getSnapshot();
+        if (disposed) {
+          return;
+        }
+
+        const mappedSnapshot = mapRuntimeSnapshot(snapshot);
+        onEvent({
+          id: "runtime-snapshot",
+          ts: new Date().toISOString(),
+          type: "snapshot",
+          data: mappedSnapshot,
+        });
+
+        await desktopClient.startListening();
+        setConnectionState("connected");
+      } catch (error) {
+        if (disposed) {
+          return;
+        }
+
+        setConnectionState("disconnected");
+        setErrorState((current) =>
+          applyErrorEvent({
+            current,
+            source: "snapshot_fetch_failure",
+            message: normalizeErrorMessage(error),
+          }),
+        );
+      }
+    };
+
+    void bootstrap();
+
+    return () => {
+      disposed = true;
+      desktopClientRef.current = null;
+      unsubscribe?.();
+    };
+  }, [onEvent]);
+
+  const runListeningCommand = useCallback(async (kind: "start" | "stop") => {
+    const desktopClient = desktopClientRef.current;
+    if (!desktopClient) {
+      setErrorState((current) =>
+        applyErrorEvent({
+          current,
+          source: "control_failure",
+          message: "desktop api unavailable",
+        }),
+      );
+      return;
+    }
+
     const sequenceId = commandTrackerRef.current.next();
     setPendingCommand(kind);
 
     try {
-      const status = await withCommandTimeout(
-        (signal) => postJson(runtimeConfig.apiBase, path, signal),
+      const snapshot = await withCommandTimeout(
+        async () => {
+          if (kind === "start") {
+            await desktopClient.startListening();
+          } else {
+            await desktopClient.stopListening();
+          }
+          return await desktopClient.getSnapshot();
+        },
         COMMAND_TIMEOUT_MS,
       );
 
@@ -299,7 +376,12 @@ export default function DashboardPage() {
         return;
       }
 
-      dispatch({ type: "STATUS", payload: status });
+      onEvent({
+        id: `runtime-snapshot-${kind}`,
+        ts: new Date().toISOString(),
+        type: "snapshot",
+        data: mapRuntimeSnapshot(snapshot),
+      });
     } catch (error) {
       if (!commandTrackerRef.current.isLatest(sequenceId)) {
         return;
@@ -317,19 +399,15 @@ export default function DashboardPage() {
         setPendingCommand(null);
       }
     }
-  }, [runtimeConfig.apiBase]);
+  }, [onEvent]);
 
   const startListening = useCallback(async () => {
-    await runListeningCommand("/api/listening/start", "start");
+    await runListeningCommand("start");
   }, [runListeningCommand]);
 
   const stopListening = useCallback(async () => {
-    await runListeningCommand("/api/listening/stop", "stop");
+    await runListeningCommand("stop");
   }, [runListeningCommand]);
-
-  useEffect(() => {
-    void startListening();
-  }, [startListening]);
 
   const latestStatusError = state.status?.last_error ?? null;
 

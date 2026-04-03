@@ -10,4 +10,5 @@ export type Freshness = "LIVE" | "IDLE" | "STALE";
 export type ErrorSource =
   | "ws_error_event"
   | "status_last_error"
+  | "snapshot_fetch_failure"
   | "control_failure";

@@ -1,74 +1,64 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DashboardI18nProvider } from "@/lib/i18n";
 
-const mockLoadRuntimeConfig = vi.hoisted(() => vi.fn());
-const mockUseEventStream = vi.hoisted(() => vi.fn());
-
-vi.mock("@/lib/config", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/config")>("@/lib/config");
-  return {
-    ...actual,
-    loadRuntimeConfig: mockLoadRuntimeConfig,
-    DEFAULT_RUNTIME_CONFIG: {
-      apiBase: "http://127.0.0.1:8000",
-      wsUrl: "ws://127.0.0.1:8000/ws/events",
+const mockDesktopClient = vi.hoisted(() => ({
+  startListening: vi.fn(async () => undefined),
+  stopListening: vi.fn(async () => undefined),
+  getSnapshot: vi.fn(async () => ({
+    status: { listening: false },
+    metrics: {
+      uptime_seconds: 0,
+      ws_clients: 0,
+      utterances_total: 0,
+      emotion_total: 0,
+      errors_total: 0,
     },
+    utterances: [],
+  })),
+  subscribe: vi.fn(() => vi.fn()),
+  getAsrSettings: vi.fn(async () => ({
+    catalog: [],
+    installedModels: [],
+    recognitionStrategy: { mode: "auto" as const },
+  })),
+}));
+
+vi.mock("@/lib/desktop/desktop-client", () => {
+  return {
+    getDesktopClient: () => mockDesktopClient,
   };
 });
 
-vi.mock("@/lib/useEventStream", () => ({
-  useEventStream: mockUseEventStream,
-}));
-
 vi.mock("@/components/dashboard/DashboardShell", () => ({
-  DashboardShell: () => <div data-testid="dashboard-shell" />,
+  DashboardShell: ({
+    onStart,
+    onStop,
+  }: {
+    onStart: () => void;
+    onStop: () => void;
+  }) => (
+    <div data-testid="dashboard-shell">
+      <button type="button" onClick={onStart}>
+        start
+      </button>
+      <button type="button" onClick={onStop}>
+        stop
+      </button>
+    </div>
+  ),
 }));
 
 describe("ConsoleRoute", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    mockLoadRuntimeConfig.mockReset();
-    mockUseEventStream.mockReset();
-
-    mockLoadRuntimeConfig.mockReturnValue({
-      config: {
-        apiBase: "https://runtime.example.test",
-        wsUrl: "wss://runtime.example.test/ws/events",
-      },
-      source: "local_storage",
-      warningCode: null,
-    });
-
-    mockUseEventStream.mockReturnValue({ connectionState: "connected" });
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          status: { listening: false },
-          metrics: {
-            uptime_seconds: 0,
-            ws_clients: 0,
-            utterances_total: 0,
-            emotion_total: 0,
-            errors_total: 0,
-          },
-          config: {
-            vosk_model_path: "",
-            sample_rate: 16000,
-            llm_model: "model",
-            osc_target: "",
-            event_buffer_size: 128,
-            active_provider: null,
-          },
-        }),
-        text: async () => "",
-      }),
-    );
+    mockDesktopClient.startListening.mockClear();
+    mockDesktopClient.stopListening.mockClear();
+    mockDesktopClient.getSnapshot.mockClear();
+    mockDesktopClient.subscribe.mockClear();
+    mockDesktopClient.getAsrSettings.mockClear();
 
     Object.defineProperty(window, "matchMedia", {
       writable: true,
@@ -80,7 +70,7 @@ describe("ConsoleRoute", () => {
     });
   });
 
-  it("binds runtime api/ws config to fetch and event stream", async () => {
+  it("uses desktop client for snapshot and start/stop listening", async () => {
     const { default: ConsoleRoute } = await import("../page");
 
     render(
@@ -89,27 +79,20 @@ describe("ConsoleRoute", () => {
       </DashboardI18nProvider>,
     );
 
-    await waitFor(() =>
-      expect(mockUseEventStream).toHaveBeenCalledWith(
-        "wss://runtime.example.test/ws/events",
-        expect.any(Function),
-      ),
-    );
-
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "https://runtime.example.test/api/listening/start",
-        expect.objectContaining({
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        }),
-      ),
-    );
+    await waitFor(() => expect(mockDesktopClient.getSnapshot).toHaveBeenCalled());
+    await waitFor(() => expect(mockDesktopClient.subscribe).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockDesktopClient.startListening).toHaveBeenCalledTimes(1));
 
     expect(screen.getByRole("link", { name: "Console" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
       "href",
       "/settings",
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "start" }));
+    await waitFor(() => expect(mockDesktopClient.startListening).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole("button", { name: "stop" }));
+    await waitFor(() => expect(mockDesktopClient.stopListening).toHaveBeenCalledTimes(1));
   });
 });

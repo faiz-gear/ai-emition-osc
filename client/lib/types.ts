@@ -1,3 +1,11 @@
+import type {
+  AsrModelCatalogItem,
+  InstalledAsrModel,
+  RecognitionStrategy,
+  RuntimeEvent,
+  RuntimeSnapshot,
+} from "@ai-emotion/contracts";
+
 export type EmotionDimensions = {
   joy: number;
   trust: number;
@@ -43,7 +51,7 @@ export type Metrics = {
 export type StatusResponse = {
   status: { listening: boolean };
   metrics: Metrics;
-  config: {
+  config?: {
     vosk_model_path: string;
     sample_rate: number;
     llm_model: string;
@@ -151,3 +159,11 @@ export type CreateProviderRequest = {
 };
 
 export type PatchProviderRequest = Partial<CreateProviderRequest>;
+
+export type { RuntimeEvent, RuntimeSnapshot, AsrModelCatalogItem, InstalledAsrModel, RecognitionStrategy };
+
+export type AsrSettingsState = {
+  catalog: AsrModelCatalogItem[];
+  installedModels: InstalledAsrModel[];
+  recognitionStrategy: RecognitionStrategy;
+};
