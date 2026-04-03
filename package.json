@@ -17,6 +17,7 @@
     "client:build": "npm run build --workspace client && node -e \"const fs=require('node:fs');const contract=JSON.parse(fs.readFileSync('desktop/renderer-path.contract.json','utf8'));const outputDir=contract.rendererDistDir;fs.rmSync(outputDir,{recursive:true,force:true});fs.cpSync('client/out',outputDir,{recursive:true});\""
   },
   "devDependencies": {
+    "jsdom": "^25.0.0",
     "typescript": "^5.5.4",
     "vitest": "^2.1.0"
   }
