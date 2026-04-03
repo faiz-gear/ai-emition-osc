@@ -20,6 +20,9 @@ const EN_MESSAGES = {
   settingsTitle: "Settings",
   settingsDescription:
     "Manage locale, runtime endpoints, and provider operations in one place.",
+  settingsDesktopUnavailableTitle: "Desktop Runtime Required",
+  settingsDesktopUnavailableDescription:
+    "Open Settings inside the Electron desktop app to access ASR, provider, and runtime controls.",
   settingsLanguageTitle: "Language",
   settingsLanguageDescription:
     "Choose the UI locale used by both Console and Settings routes.",
@@ -186,6 +189,9 @@ const ZH_MESSAGES: Record<keyof typeof EN_MESSAGES, string> = {
   endpoints: "端点",
   settingsTitle: "设置",
   settingsDescription: "在这里统一管理语言、运行时端点和提供方操作。",
+  settingsDesktopUnavailableTitle: "需要桌面运行时",
+  settingsDesktopUnavailableDescription:
+    "请在 Electron 桌面应用内打开设置页，才能访问 ASR、Provider 和运行时控制。",
   settingsLanguageTitle: "语言",
   settingsLanguageDescription: "选择控制台与设置页共享的界面语言。",
   settingsEndpointTitle: "运行时端点",

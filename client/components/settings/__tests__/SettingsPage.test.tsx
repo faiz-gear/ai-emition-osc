@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardI18nProvider } from "@/lib/i18n";
 
 const mockLoadRuntimeConfig = vi.hoisted(() => vi.fn());
+const mockGetDesktopClient = vi.hoisted(() => vi.fn());
 const mockDesktopClient = vi.hoisted(() => ({
   startListening: vi.fn(async () => undefined),
   stopListening: vi.fn(async () => undefined),
@@ -46,7 +47,7 @@ vi.mock("@/lib/config", async () => {
 });
 
 vi.mock("@/lib/desktop/desktop-client", () => ({
-  getDesktopClient: () => mockDesktopClient,
+  getDesktopClient: mockGetDesktopClient,
 }));
 
 async function renderSettingsPage() {
@@ -62,6 +63,8 @@ describe("SettingsPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockLoadRuntimeConfig.mockReset();
+    mockGetDesktopClient.mockReset();
+    mockGetDesktopClient.mockReturnValue(mockDesktopClient);
     mockDesktopClient.startListening.mockClear();
     mockDesktopClient.stopListening.mockClear();
     mockDesktopClient.getSnapshot.mockClear();
@@ -97,5 +100,23 @@ describe("SettingsPage", () => {
     expect(screen.getByTestId("provider-section")).toBeInTheDocument();
     expect(screen.getByText("ASR Models")).toBeInTheDocument();
     expect(screen.getByText("Recognition Strategy")).toBeInTheDocument();
+  });
+
+  it("degrades gracefully when desktop api is unavailable", async () => {
+    mockGetDesktopClient.mockImplementation(() => {
+      throw new Error("desktop api unavailable");
+    });
+
+    await renderSettingsPage();
+
+    expect(screen.getByText("Desktop Runtime Required")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Open Settings inside the Electron desktop app to access ASR, provider, and runtime controls.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("provider-section")).not.toBeInTheDocument();
+    expect(screen.queryByText("ASR Models")).not.toBeInTheDocument();
+    expect(screen.queryByText("Recognition Strategy")).not.toBeInTheDocument();
   });
 });

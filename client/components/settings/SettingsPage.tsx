@@ -31,6 +31,7 @@ export function SettingsPage() {
   const { locale, setLocale, t } = useI18n();
   const desktopClientRef = useRef<DesktopRuntimeClient | null>(null);
   const [desktopClient, setDesktopClient] = useState<DesktopRuntimeClient | null>(null);
+  const [desktopApiUnavailable, setDesktopApiUnavailable] = useState(false);
   const [listening, setListening] = useState(false);
   const [asrSettings, setAsrSettings] = useState<AsrSettingsState>(EMPTY_ASR_SETTINGS);
   const [downloadStates, setDownloadStates] = useState<
@@ -97,39 +98,50 @@ export function SettingsPage() {
   );
 
   useEffect(() => {
-    const client = getDesktopClient();
     let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
 
-    desktopClientRef.current = client;
-    setDesktopClient(client);
+    try {
+      const client = getDesktopClient();
 
-    const loadSettings = async () => {
-      const [snapshot, nextAsrSettings] = await Promise.all([
-        client.getSnapshot(),
-        client.getAsrSettings(),
-      ]);
+      desktopClientRef.current = client;
+      setDesktopClient(client);
+      setDesktopApiUnavailable(false);
 
-      if (cancelled) {
-        return;
-      }
+      const loadSettings = async () => {
+        const [snapshot, nextAsrSettings] = await Promise.all([
+          client.getSnapshot(),
+          client.getAsrSettings(),
+        ]);
 
-      setListening(snapshot.status.listening);
-      setAsrSettings(nextAsrSettings);
-    };
+        if (cancelled) {
+          return;
+        }
 
-    const unsubscribe = client.subscribe((event) => {
-      if (cancelled) {
-        return;
-      }
-      applyRuntimeEvent(event);
-    });
+        setListening(snapshot.status.listening);
+        setAsrSettings(nextAsrSettings);
+      };
 
-    void loadSettings().catch(() => undefined);
+      unsubscribe = client.subscribe((event) => {
+        if (cancelled) {
+          return;
+        }
+        applyRuntimeEvent(event);
+      });
+
+      void loadSettings().catch(() => undefined);
+    } catch {
+      desktopClientRef.current = null;
+      setDesktopClient(null);
+      setDesktopApiUnavailable(true);
+      setListening(false);
+      setAsrSettings(EMPTY_ASR_SETTINGS);
+    }
 
     return () => {
       cancelled = true;
       desktopClientRef.current = null;
-      unsubscribe();
+      unsubscribe?.();
     };
   }, [applyRuntimeEvent]);
 
@@ -259,28 +271,41 @@ export function SettingsPage() {
       </header>
 
       <SettingsLanguageSection locale={locale} onChangeLocale={setLocale} />
-      <SettingsAsrModelSection
-        catalog={asrSettings.catalog}
-        installedModels={asrSettings.installedModels}
-        downloadStates={downloadStates}
-        listening={listening}
-        onDownloadModel={(modelId) => {
-          void handleDownloadModel(modelId).catch(() => undefined);
-        }}
-        onActivateModel={(modelId) => {
-          void handleActivateModel(modelId).catch(() => undefined);
-        }}
-        onDeleteModel={(modelId) => {
-          void handleDeleteModel(modelId).catch(() => undefined);
-        }}
-      />
+      {desktopApiUnavailable ? (
+        <section className="rounded-[1.75rem] border border-amber-500/35 bg-amber-500/10 p-5">
+          <h2 className="text-base font-semibold text-[color:var(--text-primary)]">
+            {t("settingsDesktopUnavailableTitle")}
+          </h2>
+          <p className="mt-2 text-sm text-[color:var(--warning)]">
+            {t("settingsDesktopUnavailableDescription")}
+          </p>
+        </section>
+      ) : (
+        <>
+          <SettingsAsrModelSection
+            catalog={asrSettings.catalog}
+            installedModels={asrSettings.installedModels}
+            downloadStates={downloadStates}
+            listening={listening}
+            onDownloadModel={(modelId) => {
+              void handleDownloadModel(modelId).catch(() => undefined);
+            }}
+            onActivateModel={(modelId) => {
+              void handleActivateModel(modelId).catch(() => undefined);
+            }}
+            onDeleteModel={(modelId) => {
+              void handleDeleteModel(modelId).catch(() => undefined);
+            }}
+          />
         <SettingsRecognitionStrategySection
           value={asrSettings.recognitionStrategy}
           disabled={listening}
           onChangeMode={handleRecognitionModeChange}
           onChangeFixedLanguage={handleFixedLanguageChange}
         />
-      {providerTransport ? <SettingsProviderSection transport={providerTransport} /> : null}
+          {providerTransport ? <SettingsProviderSection transport={providerTransport} /> : null}
+        </>
+      )}
     </section>
   );
 }
