@@ -4,11 +4,16 @@ vosk-model-small-cn/
 .env
 .venv/
 
+node_modules/
+
 # Next.js
-client/node_modules/
 client/.next/
 client/out/
 client/.turbo/
+
+# Build output
+desktop/out/
+packages/contracts/dist/
 
 *.log
 .worktrees/

@@ -27,13 +27,7 @@ ai-emotion/
 ├── client/              # Next.js renderer（静态导出后供 Electron 加载）
 ├── desktop/             # Electron main / preload / runtime / capture window
 ├── packages/contracts/  # renderer 与 desktop 共享的 IPC / domain 合同
-├── client-dist/         # 生产构建后拷贝出的 renderer 静态资源
-├── server/              # 旧版 Python/FastAPI 运行时（deprecated）
-├── main.py              # 旧版 Python CLI 入口（deprecated）
-├── speech_recognizer.py # 旧版 Vosk 识别链路（deprecated）
-├── voice_processor.py   # 旧版 Python 情绪处理链路（deprecated）
-├── start.bat            # 旧版 Windows 启动脚本（deprecated）
-└── dev.bat              # 旧版 Windows 开发脚本（deprecated）
+└── docs/                # 设计说明与实现计划
 ```
 
 ### Electron 桌面分层
@@ -195,21 +189,10 @@ Phase 1 不要求 live partial transcript；dashboard 以 finalized transcript �
 
 这些能力在代码中已经存在，但本分支尚未通过真实桌面 smoke 验证证明“默认 bootstrap 已完整接线并可端到端使用”。
 
-## Legacy Python / Vosk 路径（Deprecated）
+## Legacy Python / Vosk 路径状态
 
-以下内容目前仅为临时保留，不再是主运行路径：
-
-- `server/`
-- `main.py`
-- `speech_recognizer.py`
-- `voice_processor.py`
-- `start.bat`
-- `dev.bat`
-
-这些旧入口对应的是 **Python + FastAPI + Vosk + HTTP/WebSocket** 方案。  
-Electron 桌面路径完成实机 parity 验证前，它们会暂时共存；在 parity 被确认后，应继续移除或归档这些 legacy 入口。
-
-> 新功能与后续维护默认应落在 Electron 桌面主路径，不要再为旧版 Python/Vosk 主链路扩展能力。
+旧的 **Python + FastAPI + Vosk + HTTP/WebSocket** 主链路已经从当前仓库移除。
+后续开发与维护默认只围绕 Electron 桌面主路径进行，不再继续保留或扩展旧版 Python/Vosk 入口。
 
 ## 手工 Smoke 验证清单
 
@@ -226,4 +209,4 @@ Electron 桌面路径完成实机 parity 验证前，它们会暂时共存；在
 7. Provider 管理是否工作
 8. OSC 输出是否发出
 
-如果要退休 legacy Python 路径，请先完成上述 parity 验证。
+这组清单仍然适合作为桌面主路径的实机 smoke 验证基线。
