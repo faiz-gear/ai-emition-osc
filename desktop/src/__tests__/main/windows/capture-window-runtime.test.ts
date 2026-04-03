@@ -82,6 +82,7 @@ function createFakeCaptureWindow() {
 describe("captureWindowRuntime", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.ELECTRON_RENDERER_URL = "http://localhost:5173";
   });
 
   test("ensureCaptureWindow waits for a ready status before resolving", async () => {
@@ -98,6 +99,10 @@ describe("captureWindowRuntime", () => {
 
     await Promise.resolve();
     expect(settled).toBe(false);
+    expect(createCaptureWindowMock).toHaveBeenCalledWith({
+      captureEntry: "http://localhost:5173/capture.html",
+      isDev: true
+    });
 
     harness.emitStatus({ type: "ready" });
 
