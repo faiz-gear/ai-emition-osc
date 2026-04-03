@@ -16,7 +16,11 @@ let captureWindowReady: Promise<BrowserWindow> | null = null;
 
 export function resolveCaptureEntry(isDev: boolean): string {
   if (isDev) {
-    return "http://localhost:5173/capture.html";
+    const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+    if (!rendererUrl) {
+      throw new Error("ELECTRON_RENDERER_URL is required in development");
+    }
+    return `${rendererUrl}/capture.html`;
   }
 
   return resolve(__dirname, "../../out/renderer/capture.html");

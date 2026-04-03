@@ -24,7 +24,7 @@ export function createCaptureWindow(options: CaptureWindowOptions): BrowserWindo
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
       webSecurity: true,
       backgroundThrottling: false,
       preload: preloadPath

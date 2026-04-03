@@ -14,6 +14,7 @@ export function createMainWindow(rendererEntry: string, isDev: boolean): Browser
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false,
       preload: preloadPath
     }
   });

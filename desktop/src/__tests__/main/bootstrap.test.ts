@@ -34,7 +34,7 @@ vi.mock("../../main/windows/capture-window-runtime", () => ({
   destroyCaptureWindow: destroyCaptureWindowMock,
   resolveCaptureEntry(isDev: boolean) {
     return isDev
-      ? "http://localhost:5173/capture.html"
+      ? `${process.env.ELECTRON_RENDERER_URL ?? "http://localhost:5173"}/capture.html`
       : "/tmp/desktop/out/renderer/capture.html";
   }
 }));
@@ -167,7 +167,7 @@ describe("desktop bootstrap", () => {
     });
   });
 
-  test("BrowserWindow preload path is configured", async () => {
+  test("BrowserWindow preload path is configured for unsandboxed preload execution", async () => {
     vi.resetModules();
     vi.doUnmock("../../main/index");
     vi.doUnmock("../../main/windows/create-main-window");
@@ -185,6 +185,7 @@ describe("desktop bootstrap", () => {
       expect.objectContaining({
         webPreferences: expect.objectContaining({
           contextIsolation: true,
+          sandbox: false,
           preload: expect.stringMatching(/preload\/index\.mjs$/)
         })
       })
@@ -193,6 +194,7 @@ describe("desktop bootstrap", () => {
       expect.objectContaining({
         webPreferences: expect.objectContaining({
           contextIsolation: true,
+          sandbox: false,
           preload: expect.stringMatching(/preload\/index\.mjs$/)
         })
       })
@@ -211,9 +213,10 @@ describe("desktop bootstrap", () => {
   test("capture entry resolves to the renderer bundle output html", async () => {
     vi.resetModules();
     vi.doUnmock("../../main/index");
+    process.env.ELECTRON_RENDERER_URL = "http://localhost:5175";
 
     const { resolveCaptureEntry } = await import("../../main/index");
     expect(resolveCaptureEntry(false)).toMatch(/desktop\/out\/renderer\/capture\.html$/);
-    expect(resolveCaptureEntry(true)).toBe("http://localhost:5173/capture.html");
+    expect(resolveCaptureEntry(true)).toBe("http://localhost:5175/capture.html");
   });
 });
