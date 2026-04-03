@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "@/lib/i18n";
@@ -12,8 +13,18 @@ import type {
 } from "@/lib/types";
 
 type Props = {
-  apiBase: string;
   activeProviderId: string | null;
+  apiBase?: string;
+  transport?: ProviderManagerTransport;
+};
+
+export type ProviderManagerTransport = {
+  listProviders: () => Promise<ProviderSummary[]>;
+  createProvider: (input: CreateProviderRequest) => Promise<ProviderSummary>;
+  updateProvider: (providerId: string, patch: PatchProviderRequest) => Promise<ProviderSummary>;
+  deleteProvider: (providerId: string) => Promise<void>;
+  testProvider: (providerId: string) => Promise<ProviderTestResult>;
+  activateProvider: (providerId: string) => Promise<void>;
 };
 
 const PROVIDER_TYPES: ProviderType[] = ["ollama", "openai", "openai_compatible"];
@@ -33,7 +44,71 @@ function parseErrorMessage(payload: unknown, fallback: string) {
   return fallback;
 }
 
-export function ProviderManager({ apiBase, activeProviderId }: Props) {
+function createHttpTransport(apiBase: string): ProviderManagerTransport {
+  return {
+    async listProviders() {
+      const response = await fetch(`${apiBase}/api/providers`);
+      if (!response.ok) {
+        throw new Error(`Failed to load providers (${response.status})`);
+      }
+      return (await response.json()) as ProviderSummary[];
+    },
+    async createProvider(input) {
+      const response = await fetch(`${apiBase}/api/providers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(parseErrorMessage(body, `Create failed (${response.status})`));
+      }
+      return (await response.json()) as ProviderSummary;
+    },
+    async updateProvider(providerId, patch) {
+      const response = await fetch(`${apiBase}/api/providers/${providerId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(parseErrorMessage(body, `Update failed (${response.status})`));
+      }
+      return (await response.json()) as ProviderSummary;
+    },
+    async deleteProvider(providerId) {
+      const response = await fetch(`${apiBase}/api/providers/${providerId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(parseErrorMessage(body, `Delete failed (${response.status})`));
+      }
+    },
+    async testProvider(providerId) {
+      const response = await fetch(`${apiBase}/api/providers/${providerId}/test`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(parseErrorMessage(body, `Test failed (${response.status})`));
+      }
+      return (await response.json()) as ProviderTestResult;
+    },
+    async activateProvider(providerId) {
+      const response = await fetch(`${apiBase}/api/providers/${providerId}/activate`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(parseErrorMessage(body, `Activate failed (${response.status})`));
+      }
+    },
+  };
+}
+
+export function ProviderManager({ apiBase, activeProviderId, transport }: Props) {
   const { t } = useI18n();
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -51,6 +126,15 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
   const [headersText, setHeadersText] = useState("");
 
   const isEditing = editingId !== null;
+  const providerTransport = useMemo(() => {
+    if (transport) {
+      return transport;
+    }
+    if (!apiBase) {
+      return null;
+    }
+    return createHttpTransport(apiBase);
+  }, [apiBase, transport]);
 
   const resetForm = useCallback(() => {
     setEditingId(null);
@@ -65,13 +149,13 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
   }, []);
 
   const loadProviders = useCallback(async () => {
-    const response = await fetch(`${apiBase}/api/providers`);
-    if (!response.ok) {
-      throw new Error(`Failed to load providers (${response.status})`);
+    if (!providerTransport) {
+      setProviders([]);
+      return;
     }
-    const data = (await response.json()) as ProviderSummary[];
+    const data = await providerTransport.listProviders();
     setProviders(data);
-  }, [apiBase]);
+  }, [providerTransport]);
 
   useEffect(() => {
     void loadProviders().catch((err) => setError(String(err)));
@@ -111,15 +195,10 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
           api_key: apiKey || undefined,
           headers
         };
-        const response = await fetch(`${apiBase}/api/providers/${editingId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => null);
-          throw new Error(parseErrorMessage(body, `Update failed (${response.status})`));
+        if (!providerTransport) {
+          throw new Error("provider transport unavailable");
         }
+        await providerTransport.updateProvider(editingId, payload);
         setInfo(t("providerUpdated"));
       } else {
         const payload: CreateProviderRequest = {
@@ -132,15 +211,10 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
           api_key: apiKey || null,
           headers: headers ?? null
         };
-        const response = await fetch(`${apiBase}/api/providers`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => null);
-          throw new Error(parseErrorMessage(body, `Create failed (${response.status})`));
+        if (!providerTransport) {
+          throw new Error("provider transport unavailable");
         }
+        await providerTransport.createProvider(payload);
         setInfo(t("providerCreated"));
       }
       await loadProviders();
@@ -149,7 +223,6 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
       setError(String(err));
     }
   }, [
-    apiBase,
     apiKey,
     baseUrl,
     editingId,
@@ -159,6 +232,7 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
     model,
     name,
     providerKey,
+    providerTransport,
     providerType,
     resetForm,
     t,
@@ -170,13 +244,10 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
       setBusyId(id);
       setError(null);
       try {
-        const response = await fetch(`${apiBase}/api/providers/${id}/activate`, {
-          method: "POST"
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => null);
-          throw new Error(parseErrorMessage(body, `Activate failed (${response.status})`));
+        if (!providerTransport) {
+          throw new Error("provider transport unavailable");
         }
+        await providerTransport.activateProvider(id);
         await loadProviders();
       } catch (err) {
         setError(String(err));
@@ -184,7 +255,7 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
         setBusyId(null);
       }
     },
-    [apiBase, loadProviders]
+    [loadProviders, providerTransport]
   );
 
   const testProvider = useCallback(
@@ -192,14 +263,10 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
       setBusyId(id);
       setError(null);
       try {
-        const response = await fetch(`${apiBase}/api/providers/${id}/test`, {
-          method: "POST"
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => null);
-          throw new Error(parseErrorMessage(body, `Test failed (${response.status})`));
+        if (!providerTransport) {
+          throw new Error("provider transport unavailable");
         }
-        const result = (await response.json()) as ProviderTestResult;
+        const result = await providerTransport.testProvider(id);
         setInfo(t("providerTestOk", { latency: Math.round(result.latency_ms) }));
       } catch (err) {
         setError(String(err));
@@ -207,7 +274,7 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
         setBusyId(null);
       }
     },
-    [apiBase, t]
+    [providerTransport, t]
   );
 
   const deleteProvider = useCallback(
@@ -215,13 +282,10 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
       setBusyId(id);
       setError(null);
       try {
-        const response = await fetch(`${apiBase}/api/providers/${id}`, {
-          method: "DELETE"
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => null);
-          throw new Error(parseErrorMessage(body, `Delete failed (${response.status})`));
+        if (!providerTransport) {
+          throw new Error("provider transport unavailable");
         }
+        await providerTransport.deleteProvider(id);
         await loadProviders();
       } catch (err) {
         setError(String(err));
@@ -229,7 +293,7 @@ export function ProviderManager({ apiBase, activeProviderId }: Props) {
         setBusyId(null);
       }
     },
-    [apiBase, loadProviders]
+    [loadProviders, providerTransport]
   );
 
   const startEdit = useCallback((provider: ProviderSummary) => {

@@ -2,24 +2,23 @@
 
 import React from "react";
 
-import { ProviderManager } from "@/components/ProviderManager";
+import { ProviderManager, type ProviderManagerTransport } from "@/components/ProviderManager";
 import { useI18n } from "@/lib/i18n";
 
 type SettingsProviderSectionProps = {
-  apiBase: string;
-  apiBaseRevision: number;
-  isEndpointMutating: boolean;
+  transport: ProviderManagerTransport;
 };
 
 export function SettingsProviderSection({
-  apiBase,
-  apiBaseRevision,
-  isEndpointMutating,
+  transport,
 }: SettingsProviderSectionProps) {
   const { t } = useI18n();
 
   return (
-    <section className="rounded-[1.75rem] border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-5">
+    <section
+      data-testid="provider-section"
+      className="rounded-[1.75rem] border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-5"
+    >
       <h2 className="text-base font-semibold text-[color:var(--text-primary)]">
         {t("settingsProviderTitle")}
       </h2>
@@ -27,10 +26,9 @@ export function SettingsProviderSection({
         {t("settingsProviderDescription")}
       </p>
 
-      <fieldset className="mt-4 min-w-0" disabled={isEndpointMutating}>
+      <fieldset className="mt-4 min-w-0">
         <ProviderManager
-          key={`provider-manager-${apiBaseRevision}`}
-          apiBase={apiBase}
+          transport={transport}
           activeProviderId={null}
         />
       </fieldset>

@@ -23,6 +23,30 @@ function createDesktopApiMock() {
       getRecognitionStrategy: vi.fn(async () => ({ mode: "auto" as const })),
       updateRecognitionStrategy: vi.fn(async () => ({ mode: "auto" as const })),
     },
+    providers: {
+      list: vi.fn(async () => ({ providers: [] })),
+      create: vi.fn(async () => ({
+        id: "provider-1",
+        name: "Desktop Provider",
+        provider_type: "ollama" as const,
+        model: "llama3",
+        is_active: false,
+        updated_at: "2026-04-01T00:00:00.000Z",
+        status: "ok" as const,
+      })),
+      update: vi.fn(async () => ({
+        id: "provider-1",
+        name: "Desktop Provider",
+        provider_type: "ollama" as const,
+        model: "llama3",
+        is_active: false,
+        updated_at: "2026-04-01T00:00:00.000Z",
+        status: "ok" as const,
+      })),
+      delete: vi.fn(async () => undefined),
+      test: vi.fn(async () => ({ ok: true, latency_ms: 42 })),
+      activate: vi.fn(async () => undefined),
+    },
   } as unknown as DesktopApi;
 
   return { desktopApi, subscribe };
@@ -263,5 +287,97 @@ describe("desktop-client", () => {
         fixedLanguage: "zh",
       },
     });
+  });
+
+  it("forwards asr mutation methods through the preload api", async () => {
+    const { desktopApi } = createDesktopApiMock();
+    desktopApi.asr.updateRecognitionStrategy = vi.fn(async () => ({
+      mode: "fixed" as const,
+      fixedLanguage: "en" as const,
+    }));
+
+    const client = createDesktopClient(desktopApi);
+
+    await client.downloadAsrModel("whisper-base");
+    await client.activateAsrModel("whisper-base");
+    await client.deleteAsrModel("whisper-base");
+    await expect(
+      client.updateRecognitionStrategy({ mode: "fixed", fixedLanguage: "en" }),
+    ).resolves.toEqual({
+      mode: "fixed",
+      fixedLanguage: "en",
+    });
+
+    expect(desktopApi.asr.downloadModel).toHaveBeenCalledWith("whisper-base");
+    expect(desktopApi.asr.activateModel).toHaveBeenCalledWith("whisper-base");
+    expect(desktopApi.asr.deleteModel).toHaveBeenCalledWith("whisper-base");
+    expect(desktopApi.asr.updateRecognitionStrategy).toHaveBeenCalledWith({
+      mode: "fixed",
+      fixedLanguage: "en",
+    });
+  });
+
+  it("forwards provider management methods through the preload api", async () => {
+    const { desktopApi } = createDesktopApiMock();
+    desktopApi.providers.list = vi.fn(async () => ({
+      providers: [
+        {
+          id: "provider-1",
+          name: "Desktop Provider",
+          provider_type: "ollama",
+          model: "llama3",
+          is_active: true,
+          updated_at: "2026-04-01T00:00:00.000Z",
+          status: "ok",
+        },
+      ],
+    }));
+
+    const client = createDesktopClient(desktopApi);
+
+    await expect(client.listProviders()).resolves.toEqual({
+      providers: [
+        expect.objectContaining({
+          id: "provider-1",
+          is_active: true,
+        }),
+      ],
+    });
+
+    await client.createProvider({
+      name: "Desktop Provider",
+      provider_type: "ollama",
+      model: "llama3",
+      api_key: null,
+      base_url: null,
+      headers: null,
+      provider_key: null,
+      temperature: null,
+    });
+    await client.updateProvider("provider-1", { model: "llama3.1" });
+    await client.deleteProvider("provider-1");
+    await expect(client.testProvider("provider-1")).resolves.toEqual({
+      ok: true,
+      latency_ms: 42,
+    });
+    await client.activateProvider("provider-1");
+
+    expect(desktopApi.providers.list).toHaveBeenCalledTimes(1);
+    expect(desktopApi.providers.create).toHaveBeenCalledWith({
+      name: "Desktop Provider",
+      provider_type: "ollama",
+      model: "llama3",
+      api_key: null,
+      base_url: null,
+      headers: null,
+      provider_key: null,
+      temperature: null,
+    });
+    expect(desktopApi.providers.update).toHaveBeenCalledWith("provider-1", {
+      model: "llama3.1",
+    });
+    expect(desktopApi.providers.delete).toHaveBeenCalledWith("provider-1");
+    expect(desktopApi.providers.test).toHaveBeenCalledWith("provider-1");
+    expect(desktopApi.providers.activate).toHaveBeenCalledWith("provider-1");
   });
 });
