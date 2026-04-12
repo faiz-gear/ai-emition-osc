@@ -189,11 +189,6 @@ Phase 1 不要求 live partial transcript；dashboard 以 finalized transcript �
 
 这些能力在代码中已经存在，但本分支尚未通过真实桌面 smoke 验证证明“默认 bootstrap 已完整接线并可端到端使用”。
 
-## Legacy Python / Vosk 路径状态
-
-旧的 **Python + FastAPI + Vosk + HTTP/WebSocket** 主链路已经从当前仓库移除。
-后续开发与维护默认只围绕 Electron 桌面主路径进行，不再继续保留或扩展旧版 Python/Vosk 入口。
-
 ## 手工 Smoke 验证清单
 
 当前状态：自动化验证已完成；下面这组 GUI / 设备相关验证仍待人工执行并记录结果。
