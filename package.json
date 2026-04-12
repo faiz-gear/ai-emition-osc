@@ -14,7 +14,9 @@
     "contracts:build": "npm run build --workspace @ai-emotion/contracts",
     "desktop:dev": "npm run dev --workspace desktop",
     "desktop:build": "npm run build --workspace desktop",
-    "client:build": "npm run build --workspace client && node -e \"const fs=require('node:fs');const contract=JSON.parse(fs.readFileSync('desktop/renderer-path.contract.json','utf8'));const outputDir=contract.rendererDistDir;fs.rmSync(outputDir,{recursive:true,force:true});fs.cpSync('client/out',outputDir,{recursive:true});\""
+    "client:build": "npm run build --workspace client && node -e \"const fs=require('node:fs');const contract=JSON.parse(fs.readFileSync('desktop/renderer-path.contract.json','utf8'));const outputDir=contract.rendererDistDir;fs.rmSync(outputDir,{recursive:true,force:true});fs.cpSync('client/out',outputDir,{recursive:true});\"",
+    "desktop:smoke": "npm run test --workspace @ai-emotion/contracts && npm run contracts:build && npm run test --workspace @ai-emotion/desktop -- src/__tests__/main/bootstrap.test.ts src/__tests__/ipc/register-ipc.test.ts src/__tests__/runtime/config/app-config-store.test.ts src/__tests__/runtime/providers/provider-service.test.ts && npm run client:build && npm run desktop:build",
+    "provider:rotate-secrets": "node ./desktop/scripts/rotate-provider-secrets.mjs"
   },
   "devDependencies": {
     "jsdom": "^25.0.0",

@@ -13,6 +13,7 @@ import type {
   SqliteProviderRepository,
   StoredProviderPatch,
   StoredProviderRecord,
+  StoredProviderSecretCiphertext,
   StoredProviderWrite
 } from "./provider-repository";
 
@@ -110,6 +111,7 @@ export class ProviderService {
   }
 
   public async createProvider(input: CreateProviderRequest): Promise<ProviderSummary> {
+    await this.assertMutationsAllowed();
     const normalized = normalizeProviderInput(input);
     let stored: StoredProviderRecord;
 
@@ -138,6 +140,7 @@ export class ProviderService {
     providerId: string,
     patch: Partial<CreateProviderRequest>
   ): Promise<ProviderSummary> {
+    await this.assertMutationsAllowed();
     if ("provider_type" in patch) {
       throw new ProviderServiceError(
         "PROVIDER_TYPE_IMMUTABLE",
@@ -205,6 +208,7 @@ export class ProviderService {
   }
 
   public async deleteProvider(providerId: string): Promise<void> {
+    await this.assertMutationsAllowed();
     const deleted = await this.options.repository.delete(providerId);
     if (!deleted) {
       throw new ProviderServiceError("PROVIDER_NOT_FOUND", "Provider does not exist");
@@ -212,6 +216,7 @@ export class ProviderService {
   }
 
   public async activateProvider(providerId: string): Promise<ProviderSummary> {
+    await this.assertMutationsAllowed();
     const runtime = await this.getRuntimeConfig(providerId);
     const adapter = this.getAdapter(runtime.provider_type);
     adapter.validate(runtime);
@@ -230,6 +235,7 @@ export class ProviderService {
   }
 
   public async testProvider(providerId: string): Promise<ProviderTestResult> {
+    await this.assertMutationsAllowed();
     const startedAt = performance.now();
     const runtime = await this.getRuntimeConfig(providerId);
     const adapter = this.getAdapter(runtime.provider_type);
@@ -260,6 +266,7 @@ export class ProviderService {
   }
 
   public async getActiveChatModel(): Promise<ChatModelLike> {
+    await this.assertMutationsAllowed();
     const active = await this.options.repository.getActive();
     if (!active) {
       throw new ProviderServiceError(
@@ -287,6 +294,15 @@ export class ProviderService {
     return this.adapters[providerType];
   }
 
+  private async assertMutationsAllowed(): Promise<void> {
+    if (await this.options.repository.isRotationLocked()) {
+      throw new ProviderServiceError(
+        "PROVIDER_ROTATION_IN_PROGRESS",
+        "Provider secret rotation is in progress"
+      );
+    }
+  }
+
   private runtimeFromRecord(record: StoredProviderRecord): ProviderRuntimeConfig {
     const decrypted = this.decryptSecrets(record);
 
@@ -306,14 +322,7 @@ export class ProviderService {
 
   private decryptSecrets(record: StoredProviderRecord): DecryptedSecrets {
     try {
-      return {
-        apiKey: record.api_key_encrypted
-          ? this.options.crypto.decryptText(record.api_key_encrypted)
-          : null,
-        headers: record.headers_encrypted
-          ? this.options.crypto.decryptJson(record.headers_encrypted)
-          : null
-      };
+      return decryptProviderSecrets(this.options.crypto, record);
     } catch (error) {
       throw new ProviderServiceError(
         "PROVIDER_SECRET_DECRYPT_FAILED",
@@ -344,6 +353,35 @@ export class ProviderService {
       error_code: null,
       error_message: null
     };
+  }
+}
+
+export async function rotateProviderSecrets(options: {
+  repository: SqliteProviderRepository;
+  oldCrypto: ProviderCrypto;
+  newCrypto: ProviderCrypto;
+}): Promise<{ rotatedProviders: number }> {
+  if (!(await options.repository.hasProviderSchema())) {
+    throw new Error("Provider DB schema is not initialized");
+  }
+
+  if (await options.repository.isRotationLocked()) {
+    throw new ProviderServiceError(
+      "PROVIDER_ROTATION_IN_PROGRESS",
+      "Provider secret rotation is already in progress"
+    );
+  }
+
+  await options.repository.setRotationLock(true);
+
+  try {
+    const rotatedProviders = await options.repository.rotateSecrets((record) =>
+      reencryptProviderSecrets(options.oldCrypto, options.newCrypto, record)
+    );
+
+    return { rotatedProviders };
+  } finally {
+    await options.repository.setRotationLock(false);
   }
 }
 
@@ -462,11 +500,34 @@ function encryptSecrets(
     api_key: string | null;
     headers: Record<string, string> | null;
   }
-): Pick<StoredProviderWrite, "api_key_encrypted" | "headers_encrypted"> {
+): StoredProviderSecretCiphertext {
   return {
     api_key_encrypted: input.api_key ? crypto.encryptText(input.api_key) : null,
     headers_encrypted: input.headers ? crypto.encryptJson(input.headers) : null
   };
+}
+
+function decryptProviderSecrets(
+  crypto: ProviderCrypto,
+  record: Pick<StoredProviderRecord, "api_key_encrypted" | "headers_encrypted">
+): DecryptedSecrets {
+  return {
+    apiKey: record.api_key_encrypted ? crypto.decryptText(record.api_key_encrypted) : null,
+    headers: record.headers_encrypted ? crypto.decryptJson(record.headers_encrypted) : null
+  };
+}
+
+function reencryptProviderSecrets(
+  oldCrypto: ProviderCrypto,
+  newCrypto: ProviderCrypto,
+  record: Pick<StoredProviderRecord, "api_key_encrypted" | "headers_encrypted">
+): StoredProviderSecretCiphertext {
+  const decrypted = decryptProviderSecrets(oldCrypto, record);
+
+  return encryptSecrets(newCrypto, {
+    api_key: decrypted.apiKey,
+    headers: decrypted.headers
+  });
 }
 
 function mapProviderTestError(error: unknown): ProviderServiceError {

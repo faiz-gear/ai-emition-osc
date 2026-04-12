@@ -8,7 +8,6 @@ import {
   type DesktopCommandResponseMap
 } from "@ai-emotion/contracts";
 import type { DesktopIpcServices } from "./desktop-ipc-services";
-import { getDefaultDesktopIpcServices } from "./in-memory-desktop-ipc-services";
 import { CAPTURE_PCM_CHANNEL, parseCapturePcmFramePayload } from "../../runtime/asr/capture-ipc";
 import { invokeValidators } from "./validators";
 import { destroyCaptureWindow, ensureCaptureWindow } from "../windows/capture-window-runtime";
@@ -30,7 +29,7 @@ function registerHandler<K extends DesktopCommandName>(
   });
 }
 
-export function registerIpc(services: DesktopIpcServices = getDefaultDesktopIpcServices()): void {
+export function registerIpc(services: DesktopIpcServices): void {
   registerHandler(DesktopCommand.StartListening, async () => {
     try {
       await ensureCaptureWindow();

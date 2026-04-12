@@ -288,6 +288,11 @@ export function createInMemoryDesktopIpcServices(
           payload: { providers: [...state.providers] }
         });
       }
+    },
+    async dispose() {
+      await session.stopListening().catch(() => undefined);
+      await emotionWorker.stop().catch(() => undefined);
+      await osc.close().catch(() => undefined);
     }
   };
 }

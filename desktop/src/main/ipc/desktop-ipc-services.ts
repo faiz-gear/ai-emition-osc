@@ -41,4 +41,5 @@ export type DesktopIpcServices = {
     test(providerId: string): Promise<ProviderTestResult>;
     activate(providerId: string): Promise<void>;
   };
+  dispose?(): Promise<void>;
 };
