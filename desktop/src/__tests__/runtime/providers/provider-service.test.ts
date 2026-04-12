@@ -6,6 +6,7 @@ import { ProviderCrypto } from "../../../runtime/providers/provider-crypto";
 import {
   ProviderService,
   ProviderServiceError,
+  rotateProviderSecrets,
   type ChatModelLike,
   type ProviderAdapter,
   type ProviderRuntimeConfig
@@ -13,6 +14,7 @@ import {
 import { SqliteProviderRepository } from "../../../runtime/providers/provider-repository";
 
 const SECRET_KEY = "0123456789abcdef0123456789abcdef";
+const NEXT_SECRET_KEY = "fedcba9876543210fedcba9876543210";
 
 class FakeModel implements ChatModelLike {
   public constructor(private readonly failure?: Error) {}
@@ -195,6 +197,133 @@ describe("provider service", () => {
 
     await expect(service.testProvider(active!.id)).rejects.toMatchObject<ProviderServiceError>({
       code: "PROVIDER_UPSTREAM_UNAVAILABLE"
+    });
+  });
+
+  test("blocks provider mutations and active runtime access while secret rotation is locked", async () => {
+    const { repository, service } = await createService();
+    const created = await service.createProvider({
+      name: "Locked provider",
+      provider_type: "openai",
+      model: "gpt-4.1-mini",
+      api_key: "sk-secret"
+    });
+
+    await repository.setRotationLock(true);
+
+    await expect(service.listSummaries()).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: created.id })])
+    );
+
+    await expect(
+      service.createProvider({
+        name: "Blocked create",
+        provider_type: "openai",
+        model: "gpt-4.1-mini",
+        api_key: "sk-blocked"
+      })
+    ).rejects.toMatchObject<ProviderServiceError>({
+      code: "PROVIDER_ROTATION_IN_PROGRESS"
+    });
+
+    await expect(
+      service.updateProvider(created.id, {
+        name: "Blocked update"
+      })
+    ).rejects.toMatchObject<ProviderServiceError>({
+      code: "PROVIDER_ROTATION_IN_PROGRESS"
+    });
+
+    await expect(service.deleteProvider(created.id)).rejects.toMatchObject<ProviderServiceError>({
+      code: "PROVIDER_ROTATION_IN_PROGRESS"
+    });
+
+    await expect(service.activateProvider(created.id)).rejects.toMatchObject<ProviderServiceError>({
+      code: "PROVIDER_ROTATION_IN_PROGRESS"
+    });
+
+    await expect(service.testProvider(created.id)).rejects.toMatchObject<ProviderServiceError>({
+      code: "PROVIDER_ROTATION_IN_PROGRESS"
+    });
+
+    await expect(service.getActiveChatModel()).rejects.toMatchObject<ProviderServiceError>({
+      code: "PROVIDER_ROTATION_IN_PROGRESS"
+    });
+  });
+
+  test("re-encrypts provider secrets under a new key and clears the rotation lock", async () => {
+    const { repository, service } = await createService();
+    const created = await service.createProvider({
+      name: "Rotate me",
+      provider_type: "openai",
+      model: "gpt-4.1-mini",
+      api_key: "sk-rotate-me",
+      headers: {
+        Authorization: "Bearer sk-rotate-me"
+      }
+    });
+
+    const before = await repository.get(created.id);
+
+    await expect(
+      rotateProviderSecrets({
+        repository,
+        oldCrypto: new ProviderCrypto(SECRET_KEY),
+        newCrypto: new ProviderCrypto(NEXT_SECRET_KEY)
+      })
+    ).resolves.toEqual({
+      rotatedProviders: 2
+    });
+
+    const after = await repository.get(created.id);
+    expect(after?.api_key_encrypted).not.toBe(before?.api_key_encrypted);
+    expect(after?.headers_encrypted).not.toBe(before?.headers_encrypted);
+    await expect(repository.isRotationLocked()).resolves.toBe(false);
+
+    const rotatedService = new ProviderService({
+      repository,
+      crypto: new ProviderCrypto(NEXT_SECRET_KEY)
+    });
+
+    await expect(rotatedService.getRuntimeConfig(created.id)).resolves.toMatchObject({
+      api_key: "sk-rotate-me",
+      headers: {
+        Authorization: "Bearer sk-rotate-me"
+      }
+    });
+
+    const staleSummaries = await service.listSummaries();
+    const staleRecord = staleSummaries.find((provider) => provider.id === created.id);
+    expect(staleRecord).toMatchObject({
+      status: "degraded",
+      error_code: "PROVIDER_SECRET_DECRYPT_FAILED"
+    });
+  });
+
+  test("keeps existing ciphertext intact when key rotation fails", async () => {
+    const { repository, service } = await createService();
+    const created = await service.createProvider({
+      name: "Rotation rollback",
+      provider_type: "openai",
+      model: "gpt-4.1-mini",
+      api_key: "sk-rollback"
+    });
+
+    const before = await repository.get(created.id);
+
+    await expect(
+      rotateProviderSecrets({
+        repository,
+        oldCrypto: new ProviderCrypto("wrong-old-secret"),
+        newCrypto: new ProviderCrypto(NEXT_SECRET_KEY)
+      })
+    ).rejects.toThrow(/decrypt/i);
+
+    const after = await repository.get(created.id);
+    expect(after?.api_key_encrypted).toBe(before?.api_key_encrypted);
+    await expect(repository.isRotationLocked()).resolves.toBe(false);
+    await expect(service.getRuntimeConfig(created.id)).resolves.toMatchObject({
+      api_key: "sk-rollback"
     });
   });
 });

@@ -10,6 +10,7 @@ node_modules/
 client/.next/
 client/out/
 client/.turbo/
+client-dist/
 
 # Build output
 desktop/out/

@@ -46,6 +46,11 @@ export type StoredProviderPatch = Partial<
   >
 >;
 
+export type StoredProviderSecretCiphertext = Pick<
+  StoredProviderRecord,
+  "api_key_encrypted" | "headers_encrypted"
+>;
+
 type ProviderConfigRow = StoredProviderRecord & {
   is_active: 0 | 1;
 };
@@ -156,6 +161,16 @@ export class SqliteProviderRepository {
     return row ? mapRecord(row) : null;
   }
 
+  public async hasProviderSchema(): Promise<boolean> {
+    const row = this.database
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'provider_configs'"
+      )
+      .get() as { name: string } | undefined;
+
+    return Boolean(row?.name);
+  }
+
   public async create(input: StoredProviderWrite): Promise<StoredProviderRecord> {
     const providerId = crypto.randomUUID();
     const timestamp = nowIso();
@@ -263,6 +278,64 @@ export class SqliteProviderRepository {
       .get() as ProviderConfigRow | undefined;
 
     return row ? mapRecord(row) : null;
+  }
+
+  public async isRotationLocked(): Promise<boolean> {
+    return this.readMeta("provider_rotation_lock") === "1";
+  }
+
+  public async setRotationLock(locked: boolean): Promise<void> {
+    this.writeMeta("provider_rotation_lock", locked ? "1" : "0");
+  }
+
+  public async rotateSecrets(
+    reencrypt: (record: StoredProviderRecord) => StoredProviderSecretCiphertext
+  ): Promise<number> {
+    const transaction = this.database.transaction(() => {
+      const rows = this.database
+        .prepare("SELECT * FROM provider_configs ORDER BY datetime(created_at) ASC")
+        .all() as ProviderConfigRow[];
+      const statement = this.database.prepare(
+        `UPDATE provider_configs
+         SET api_key_encrypted = ?, headers_encrypted = ?, updated_at = ?
+         WHERE id = ?`
+      );
+      let rotated = 0;
+
+      for (const row of rows) {
+        const record = mapRecord(row);
+        const next = reencrypt(record);
+        statement.run(
+          next.api_key_encrypted ?? null,
+          next.headers_encrypted ?? null,
+          nowIso(),
+          record.id
+        );
+        rotated += 1;
+      }
+
+      return rotated;
+    });
+
+    return transaction();
+  }
+
+  private readMeta(key: string): string | null {
+    const row = this.database
+      .prepare("SELECT value FROM app_meta WHERE key = ?")
+      .get(key) as { value: string } | undefined;
+
+    return row?.value ?? null;
+  }
+
+  private writeMeta(key: string, value: string): void {
+    this.database
+      .prepare(
+        `INSERT INTO app_meta (key, value)
+         VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+      )
+      .run(key, value);
   }
 }
 

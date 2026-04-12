@@ -2,8 +2,9 @@ import { BrowserWindow, app } from "electron";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import rendererPathContract from "../../renderer-path.contract.json";
-import { getDefaultDesktopIpcServices } from "./ipc/in-memory-desktop-ipc-services";
+import type { DesktopIpcServices } from "./ipc/desktop-ipc-services";
 import { registerIpc } from "./ipc/register-ipc";
+import { getDefaultDesktopIpcServices } from "./runtime/create-desktop-ipc-services";
 import { createMainWindow } from "./windows/create-main-window";
 import { destroyCaptureWindow, resolveCaptureEntry } from "./windows/capture-window-runtime";
 
@@ -11,7 +12,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 let ipcRegistered = false;
+let quitCleanupRegistered = false;
 let mainWindow: BrowserWindow | null = null;
+let desktopServicesPromise: Promise<DesktopIpcServices> | null = null;
 
 export function resolveRendererEntry(isDev: boolean): string {
   if (isDev) {
@@ -24,12 +27,12 @@ export function resolveRendererEntry(isDev: boolean): string {
   );
 }
 
-function ensureMainWindow(isDev: boolean): void {
+function ensureMainWindow(isDev: boolean, services: DesktopIpcServices): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = createMainWindow(resolveRendererEntry(isDev), isDev);
     mainWindow.on("closed", () => {
-      void getDefaultDesktopIpcServices()
-        .session.stopListening()
+      void services.session
+        .stopListening()
         .catch(() => undefined)
         .finally(() => {
           destroyCaptureWindow();
@@ -41,13 +44,27 @@ function ensureMainWindow(isDev: boolean): void {
 
 export async function bootstrapMain(isDev = process.env.NODE_ENV === "development"): Promise<void> {
   await app.whenReady();
+  desktopServicesPromise ??= getDefaultDesktopIpcServices();
+  const services = await desktopServicesPromise;
   if (!ipcRegistered) {
-    registerIpc();
+    registerIpc(services);
     ipcRegistered = true;
   }
-  ensureMainWindow(isDev);
+  if (!quitCleanupRegistered) {
+    app.once("will-quit", () => {
+      void desktopServicesPromise
+        ?.then((activeServices) => activeServices.dispose?.())
+        .catch(() => undefined);
+    });
+    quitCleanupRegistered = true;
+  }
+  ensureMainWindow(isDev, services);
   app.on("activate", () => {
-    ensureMainWindow(isDev);
+    void desktopServicesPromise
+      ?.then((activeServices) => {
+        ensureMainWindow(isDev, activeServices);
+      })
+      .catch(() => undefined);
   });
 }
 

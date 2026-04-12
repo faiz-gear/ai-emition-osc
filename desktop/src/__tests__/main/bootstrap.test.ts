@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const { destroyCaptureWindowMock, ipcMainHandleMock, onMock, stopListeningMock, whenReadyMock } = vi.hoisted(() => ({
+const { destroyCaptureWindowMock, ipcMainHandleMock, onMock, onceMock, stopListeningMock, whenReadyMock } = vi.hoisted(() => ({
   destroyCaptureWindowMock: vi.fn(),
   ipcMainHandleMock: vi.fn(),
   onMock: vi.fn(),
+  onceMock: vi.fn(),
   stopListeningMock: vi.fn(async () => undefined),
   whenReadyMock: vi.fn(async () => undefined)
 }));
@@ -22,7 +23,8 @@ const browserWindowMock = Object.assign(browserWindowCtor, {
 vi.mock("electron", () => ({
   app: {
     whenReady: whenReadyMock,
-    on: onMock
+    on: onMock,
+    once: onceMock
   },
   ipcMain: {
     handle: ipcMainHandleMock
@@ -39,14 +41,12 @@ vi.mock("../../main/windows/capture-window-runtime", () => ({
   }
 }));
 
-vi.mock("../../main/ipc/in-memory-desktop-ipc-services", () => ({
-  getDefaultDesktopIpcServices() {
-    return {
-      session: {
-        stopListening: stopListeningMock
-      }
-    };
-  }
+vi.mock("../../main/runtime/create-desktop-ipc-services", () => ({
+  getDefaultDesktopIpcServices: vi.fn(async () => ({
+    session: {
+      stopListening: stopListeningMock
+    }
+  }))
 }));
 
 describe("desktop bootstrap", () => {
@@ -144,7 +144,9 @@ describe("desktop bootstrap", () => {
     mainWindow.emitClosed();
     activateHandler?.();
 
-    expect(createMainWindowMock).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => {
+      expect(createMainWindowMock).toHaveBeenCalledTimes(2);
+    });
   });
 
   test("closing the main window tears down any hidden capture window", async () => {

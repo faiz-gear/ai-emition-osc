@@ -14,6 +14,8 @@
   --success: #15803d;
   --warning: #a16207;
   --danger: #be123c;
+  --font-ui: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-mono: "SFMono-Regular", "JetBrains Mono", "Menlo", "Consolas", monospace;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -30,8 +32,7 @@ body {
 body {
   background: var(--bg);
   color: var(--text-primary);
-  font-family:
-    var(--font-ui), "Segoe UI", "Helvetica Neue", sans-serif;
+  font-family: var(--font-ui);
   position: relative;
 }
 
@@ -49,7 +50,7 @@ body::before {
 
 code,
 .mono {
-  font-family: var(--font-mono), "Menlo", "Consolas", monospace;
+  font-family: var(--font-mono);
 }
 
 .transcript-shimmer {

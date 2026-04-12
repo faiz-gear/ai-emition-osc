@@ -1,18 +1,7 @@
-import { JetBrains_Mono, Outfit } from "next/font/google";
 import type { Metadata } from "next";
 
 import { ClientProviders } from "@/components/providers/ClientProviders";
 import "./globals.css";
-
-const outfit = Outfit({
-  subsets: ["latin"],
-  variable: "--font-ui",
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-});
 
 export const metadata: Metadata = {
   title: "AI Emotion Monitor",
@@ -26,7 +15,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className={`${outfit.variable} ${jetbrainsMono.variable} antialiased`}>
+      <body className="antialiased">
         <ClientProviders>{children}</ClientProviders>
       </body>
     </html>
